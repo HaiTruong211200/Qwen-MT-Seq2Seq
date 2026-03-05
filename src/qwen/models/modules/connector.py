@@ -11,20 +11,11 @@ from .normalization import QwenRMSNorm
 from qwen.models.encoder import QwenModelBiAttEncoder
 
 class ProjectDown(nn.Module):
-    def __init__(self, encoder_dim=2560, decoder_dim=1024):
+    def __init__(self, encoder_dim, decoder_dim):
         super().__init__()
-        # self.project_down = nn.Sequential(
-        #     nn.Linear(encoder_dim, decoder_dim, bias=False),
-        #     nn.GELU(),
-        #     nn.Linear(decoder_dim, decoder_dim, bias=False),
-        # )
         self.linear_1 = nn.Linear(encoder_dim, decoder_dim, bias=False)
         self.act_fn = nn.GELU()
         self.linear_2 = nn.Linear(decoder_dim, decoder_dim, bias=False)
-        
-        # 3. Post-Norm: Chuẩn hóa output trước khi đưa vào Decoder
-        # Đảm bảo tín hiệu đi vào Decoder luôn ổn định (Variance ~ 1)
-        # self.output_norm = LlamaRMSNorm(decoder_dim)
 
         # --- KHỞI TẠO TRỌNG SỐ ---
         self.apply(self._init_weights)
@@ -47,28 +38,9 @@ class ProjectDown(nn.Module):
                 module.weight.data.normal_(mean=0.0, std=0.02)
 
     def forward(self, x):
-        # x shape: [Batch, Seq_Len, Encoder_Dim]
-        # print("Project Down")
-        # print(f"x1: max: {x.max()}, min: {x.min()}")
-#         if torch.isnan(x).any():
-#             print(f"💀 Chết tại Project Down!")
-        
-        # 1. Normalize đầu vào
-        # x = self.input_norm(x)
-        
-        # 2. Down Projection
         x = self.linear_1(x)
-        # print(f"x2: max: {x.max()}, min: {x.min()}")
         x = self.act_fn(x)
-        # print(f"x3: max: {x.max()}, min: {x.min()}")
-        
-        # 3. Mixing / Output Projection
         x = self.linear_2(x)
-        # print(f"x4: max: {x.max()}, min: {x.min()}")
-        
-        # 4. Normalize đầu ra
-        # x = self.output_norm(x)
-        # print(f"x5: max: {x.max()}, min: {x.min()}")
         
         return x
     
@@ -76,7 +48,7 @@ class ProjectDown(nn.Module):
 class Connector(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.encoder_project = ProjectDown(encoder_dim=2560, decoder_dim=config.decoder.hidden_size)
+        self.encoder_project = ProjectDown(encoder_dim=config.hidden_size, decoder_dim=config.decoder.hidden_size)
         # self.encoder_project = ProjectDown(encoder_dim=4096, decoder_dim=2048)
         self.post_encoder = None
         self.encoder_method = getattr(config, "encoder_method", "causal")
@@ -85,9 +57,10 @@ class Connector(nn.Module):
             tiny_encoder_config = copy.deepcopy(config.decoder)
             # tiny_encoder_config["num_hidden_layers"] = getattr(config, "encoder_layer_num", 8)
             tiny_encoder_config.num_hidden_layers = getattr(config, "encoder_layer_num", 8)
+            tiny_encoder_config.layer_types = ["full_attention"] * tiny_encoder_config.num_hidden_layers
             # stack_encoder_config = PretrainedConfig.from_dict(tiny_encoder_config)  
-            stack_encoder_config = PretrainedConfig.from_dict(tiny_encoder_config.to_dict())  
-            self.post_encoder = QwenModelBiAttEncoder(stack_encoder_config)
+            # stack_encoder_config = PretrainedConfig.from_dict(tiny_encoder_config.to_dict())  
+            self.post_encoder = QwenModelBiAttEncoder(tiny_encoder_config)
             self.post_encoder.apply(self.post_encoder._init_weights)
       
     def forward(

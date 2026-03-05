@@ -7,10 +7,12 @@ from transformers.modeling_outputs import BaseModelOutputWithPast
 from transformers.utils import logging
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.utils import add_start_docstrings, add_start_docstrings_to_model_forward
+from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 
 from qwen.models.modules.normalization import QwenRMSNorm
 from .base_model import QwenPreTrainedModel
 from qwen.models.modules.layers import QwenCrossAttDecoderLayer
+
 
 logger = logging.get_logger(__name__)
 
@@ -90,7 +92,7 @@ Qwen_INPUTS_DOCSTRING = r"""
 
 
 class QwenCrossAttDecoder(QwenPreTrainedModel):
-    def __init__(self, config):
+    def __init__(self, config: Qwen2Config):
         super().__init__(config)
         self.padding_idx = config.pad_token_id
         self.vocab_size = config.vocab_size

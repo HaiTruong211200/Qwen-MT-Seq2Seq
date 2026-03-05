@@ -95,6 +95,7 @@ LANG_TABLE = {
     "li": "Limburgish",
     "lt": "Lithuanian",
     "lv": "Latvian",
+    "lo": "Laos",
     "mg": "Malagasy",
     "mk": "Macedonian",
     "ml": "Malayalam",

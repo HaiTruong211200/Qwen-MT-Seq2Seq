@@ -15,6 +15,7 @@ import qwen.utils.utils as utils
 from qwen.process_data.process_data import load_mmt_dataset, process_mmt_data_for_seq2seq
 import re
 from peft import LoraConfig, TaskType, get_peft_model
+from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 
 import transformers
 from transformers import (
@@ -148,6 +149,8 @@ def main():
             decoder_config["intermediate_size"] = model_args.decoder_intermediate_size
             decoder_config["num_attention_heads"] = model_args.decoder_num_attention_heads
             decoder_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
+            decoder_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
+            decoder_config = Qwen2Config.from_dict(**decoder_config)
             config.decoder =  decoder_config
             # set encoder config
             config.use_cache = False
@@ -156,6 +159,8 @@ def main():
             config.encoder_method = model_args.encoder_method
             config.encoder_layer_num = model_args.encoder_layer_num
             # make param dict
+            print(type(config))
+            print("Model Init config:", config)
             state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path)
             model = QwenCrossAttentionEncDec.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
             model.freeze_llm() # frozen LLM
@@ -259,7 +264,8 @@ def main():
 
     optimizer = None
 
-    # manual_fix_connector_weights(model)
+    if model_args.run_mode == "init":
+        manual_fix_connector_weights(model)
     check_weight(model)
 
     

@@ -200,7 +200,7 @@ class DataTrainingArguments:
     )
 
     ### add new
-    language_pairs: str = field(default="de-en,en-de,cs-en,en-cs,ru-en,en-ru,zh-en,en-zh,vi-km", metadata={"help": "training language pairs"})
+    language_pairs: str = field(default="de-en,en-de,cs-en,en-cs,ru-en,en-ru,zh-en,en-zh,vi-km,vi-lo", metadata={"help": "training language pairs"})
     mmt_data_path: Optional[str] = field(
         default=None, metadata={"help": "The name of the dataset to use (via the datasets library)."}
     )

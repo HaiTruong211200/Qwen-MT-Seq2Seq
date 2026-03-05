@@ -12,29 +12,29 @@ export PYTHONUNBUFFERED=1
 export HF_HOME="./cache/"
 export HF_DATASETS_CACHE="./cache/huggingface_cache/datasets"
 
-config_file=$ROOT_DIR/configs/config.yaml
+config_file=$ROOT_DIR/configs/myconfig.yaml
 
 ## model
-model_dir="/kaggle/input/sailor2-1b/transformers/default/1"
-run_mode="init"
+model_dir="hai2131/sailor2-1b-seq2seq-512-stage1"
+run_mode="continue"
 
 model_method="lamate"
 encoder_method="stack"
-encoder_layer_num=4
-decoder_layer_num=4
+encoder_layer_num=8
+decoder_layer_num=8
 decoder_hidden_size=512
 decoder_intermediate_size=1376
 decoder_num_attention_heads=8
 decoder_num_key_value_heads=8
-decoder_param_method="freeze"
-tag=lamate_s1
+# decoder_param_method="freeze"
+tag=lamate_s2
 
 ## data
 language_pairs=vi-km,vi-lo
 mmt_data_path=$ROOT_DIR/data
 trans_task="general_trans"
 epoch=2
-batch_size=2
+batch_size=1
 gradient_accumulation=2
 
 ## save
@@ -67,13 +67,13 @@ accelerate launch --config_file $config_file \
     --do_predict \
     --learning_rate 5e-5 \
     --weight_decay 0.01 \
-    --lr_scheduler_type inverse_sqrt \
+    --lr_scheduler_type cosine \
     --warmup_ratio 0.01 \
     --metric_for_best_model eval_loss \
     --load_best_model_at_end False \
     --cache_dir ./cache \
-    --dataloader_num_workers 24 \
-    --preprocessing_num_workers 16 \
+    --dataloader_num_workers 4 \
+    --preprocessing_num_workers 4 \
     --max_source_length 512 \
     --max_target_length 512 \
     --output_dir  $output_dir \
@@ -84,7 +84,7 @@ accelerate launch --config_file $config_file \
     --gradient_accumulation_steps $gradient_accumulation \
     --predict_with_generate \
     --num_beams 5 \
-    --max_new_tokens 256 \
+    --max_new_tokens 512 \
     --eval_strategy steps \
     --save_strategy no \
     --logging_strategy steps \
