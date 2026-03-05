@@ -265,7 +265,7 @@ def main():
     optimizer = None
 
     if model_args.run_mode == "init":
-        manual_fix_connector_weights(model)
+        manual_fix_connector_weights(model, target_dim=model.config.decoder.hidden_size)
     check_weight(model)
 
     
