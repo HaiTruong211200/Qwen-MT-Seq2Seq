@@ -12,10 +12,10 @@ export PYTHONUNBUFFERED=1
 export HF_HOME="./cache/"
 export HF_DATASETS_CACHE="./cache/huggingface_cache/datasets"
 
-config_file=$ROOT_DIR/configs/config.yaml
+config_file=$ROOT_DIR/configs/myconfig.yaml
 
 ## model
-model_dir="/kaggle/input/sailor2-1b/transformers/default/1"
+model_dir="sail/Sailor2-1B-Chat"
 run_mode="init"
 
 model_method="lamate"

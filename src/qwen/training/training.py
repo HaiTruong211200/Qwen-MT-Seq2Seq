@@ -150,7 +150,7 @@ def main():
             decoder_config["num_attention_heads"] = model_args.decoder_num_attention_heads
             decoder_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
             decoder_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
-            decoder_config = Qwen2Config.from_dict(**decoder_config)
+            decoder_config = Qwen2Config(**decoder_config)
             config.decoder =  decoder_config
             # set encoder config
             config.use_cache = False
