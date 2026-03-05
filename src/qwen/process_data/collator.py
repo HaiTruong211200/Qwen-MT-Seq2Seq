@@ -37,7 +37,6 @@ class DataCollatorForLamate:
 
         ## for predict only
         if labels is None:
-            print("☹️☹️☹️ Inference")
             features = {
                 "input_ids": torch.tensor(np.array(input_ids).astype(np.int64)),
                 "attention_mask": torch.tensor(np.array(attention_mask).astype(np.int64))

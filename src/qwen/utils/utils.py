@@ -114,11 +114,18 @@ def set_model_special_tokens(model, model_name_or_path):
     elif "Llama-3" in model_name_or_path:
         model.config.pad_token_id = 128002
         model.generation_config.pad_token_id = 128002
-    elif "qwen" in model_name_or_path or "sailor" in model_name_or_path or "Sailor" in model_name_or_path:
-        model.config.pad_token_id = 151644
+    elif "Qwen3" in model_name_or_path or "Sailor" in model_name_or_path:
+        model.config.pad_token_id = 151643
+        model.config.bos_token_id = 151645
+        model.config.eos_token_id = 151645
+        model.generation_config.pad_token_id = 151643
+        model.generation_config.bos_token_id = 151645
+        model.generation_config.eos_token_id = 151645
+    elif "Qwen2.5" in model_name_or_path :
+        model.config.pad_token_id = 151643
         model.config.bos_token_id = 151643
         model.config.eos_token_id = 151643
-        model.generation_config.pad_token_id = 151644
+        model.generation_config.pad_token_id = 151643
         model.generation_config.bos_token_id = 151643
         model.generation_config.eos_token_id = 151643
     return model
@@ -139,11 +146,18 @@ def set_tokenizer_special_tokens(tokenizer, model_name_or_path):
         tokenizer.bos_token = "<|endoftext|>"
     elif "Llama-3" in model_name_or_path:
         tokenizer.pad_token_id = 128002
-    elif "qwen" in model_name_or_path or "sailor" in model_name_or_path or "Sailor" in model_name_or_path:
-        tokenizer.pad_token_id = 151644
+    elif "Qwen3" in model_name_or_path or "Sailor" in model_name_or_path:
+        tokenizer.pad_token_id = 151643
+        tokenizer.bos_token_id = 151645
+        tokenizer.eos_token_id = 151645
+        tokenizer.pad_token = "<|endoftext|>"
+        tokenizer.eos_token = "<|im_end|>"
+        tokenizer.bos_token = "<|im_end|>"
+    elif "Qwen2.5" in model_name_or_path:
+        tokenizer.pad_token_id = 151643
         tokenizer.bos_token_id = 151643
         tokenizer.eos_token_id = 151643
-        tokenizer.pad_token = "<|im_start|>"
+        tokenizer.pad_token = "<|endoftext|>"
         tokenizer.eos_token = "<|endoftext|>"
         tokenizer.bos_token = "<|endoftext|>"
     return tokenizer
