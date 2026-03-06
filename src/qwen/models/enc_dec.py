@@ -376,7 +376,7 @@ class QwenCrossAttentionEncDec(QwenForEncDec, GenerationMixin):
             is_freeze = False
 
             ## freeze the whole encoder except connector
-            if name.startswith("encoder.") and not name.startswith("encoder.connetor") and not name.startswith("encoder.fuse_model"):
+            if name.startswith("encoder.") and not name.startswith("encoder.connector") and not name.startswith("encoder.fuse_model"):
                 param.requires_grad = False
                 is_freeze = True
             if torch.cuda.current_device() == 0 and is_freeze:

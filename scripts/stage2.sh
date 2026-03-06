@@ -26,6 +26,8 @@ decoder_hidden_size=512
 decoder_intermediate_size=1376
 decoder_num_attention_heads=8
 decoder_num_key_value_heads=8
+lora_r=32
+lora_alpha=64
 # decoder_param_method="freeze"
 tag=lamate_s2
 
