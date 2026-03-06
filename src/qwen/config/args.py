@@ -80,6 +80,9 @@ class ModelArguments:
     decoder_model_name_or_path: str = field(default=None)
     encoder_layer_num: int = field(default=8)
 
+    lora_r: int = field(default=8)
+    lora_alpha: int = field(default=32)
+
 @dataclass
 class DataTrainingArguments:
     """
@@ -234,6 +237,7 @@ class DataTrainingArguments:
     test_dataname: str = field(
         default="wmt23"
     )
+
 
     def __post_init__(self):
         if self.val_max_target_length is None:
