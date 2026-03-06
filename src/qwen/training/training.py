@@ -168,8 +168,8 @@ def main():
         else:
             model = QwenCrossAttentionEncDec.from_pretrained(model_args.model_name_or_path, config=config)
             config = LoraConfig(
-                r=8,
-                lora_alpha=32,
+                r=model_args.lora_r,
+                lora_alpha=model_args.lora_alpha,
                 lora_dropout=0.1,
                 # Regex giải thích:
                 # ^encoder\.layers  -> Bắt đầu chính xác bằng cụm "encoder.layers"
