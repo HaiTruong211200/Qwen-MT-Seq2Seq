@@ -4,7 +4,7 @@ import torch.nn as nn
 from qwen.models.modules.normalization import QwenRMSNorm
 
 def manual_fix_connector_weights(model, target_dim=512):
-    print("\n💉 ĐANG TIÊM GIÁ TRỊ KHỞI TẠO VÀO CONNECTOR (MANUAL FIX)...")
+    print("\nKHỞI TẠO LẠI GIÁ TRỊ CHO CONNECTOR...")
     
     # 1. Định vị Connector
     # Tuỳ vào cách bạn đặt tên, hãy trỏ đúng vào connector

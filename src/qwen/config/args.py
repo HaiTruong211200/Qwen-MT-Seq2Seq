@@ -80,8 +80,8 @@ class ModelArguments:
     decoder_model_name_or_path: str = field(default=None)
     encoder_layer_num: int = field(default=8)
 
-    lora_r: int = field(default=8)
-    lora_alpha: int = field(default=32)
+    lora_r: int = field(default=32)
+    lora_alpha: int = field(default=64)
 
 @dataclass
 class DataTrainingArguments:
