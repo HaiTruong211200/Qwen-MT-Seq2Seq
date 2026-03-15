@@ -590,3 +590,214 @@ def process_mmt_data_for_llm(train_raw_data, valid_raw_data, test_raw_data, pair
                 test_datasets[lg_pair][task] = test_dataset
     
     return train_datasets, eval_datasets, test_datasets
+
+def load_data_pretrain(languages, data_args, model_args, training_args, logger):
+    seen_files =set()
+    train_raw_data, valid_raw_data, test_raw_data = defaultdict(dict), defaultdict(dict), defaultdict(dict)
+    for lang in languages:
+        train_file = os.path.join(data_args.mmt_data_path, f"pretrain_data.{lang}.json")
+        valid_file = os.path.join(data_args.mmt_data_path, f"pretrain_valid.{lang}.json")
+        test_file = os.path.join(data_args.mmt_data_path, f"pretrain_test.{lang}.json")
+
+        if not os.path.isfile(train_file):
+            logger.info(f"Warning: training file {train_file} does not exist!")
+        elif train_file not in seen_files and training_args.do_train:
+            logger.info(f"Load training file {train_file}!")
+            train_raw_data[lang]["pretrain"] = load_dataset(
+                "json",
+                data_files={"train": train_file},
+                cache_dir=model_args.cache_dir,
+                # use_auth_token=True if model_args.use_auth_token else None,
+                streaming=data_args.streaming,
+                num_proc=training_args.dataloader_num_workers
+                )
+        
+        if not os.path.isfile(valid_file):
+            logger.info(f"Warning: validation file {valid_file} does not exist!")
+        elif valid_file not in seen_files and training_args.do_eval:
+            logger.info(f"Load valid file {valid_file}!")
+            valid_raw_data[lang]["pretrain"] = load_dataset(
+                "json",
+                data_files={"validation": valid_file},
+                cache_dir=model_args.cache_dir,
+                # use_auth_token=True if model_args.use_auth_token else None,
+                num_proc=training_args.dataloader_num_workers
+                )
+        
+        if not os.path.isfile(test_file):
+            logger.info(f"Warning: test file {test_file} does not exist!")
+        elif test_file not in seen_files and training_args.do_predict:
+            logger.info(f"Load test file {test_file}!")
+            test_raw_data[lang]["pretrain"] = load_dataset(
+                "json",
+                data_files={"test": test_file},
+                cache_dir=model_args.cache_dir,
+                # use_auth_token=True if model_args.use_auth_token else None,
+            )
+
+        seen_files.add(train_file)
+        seen_files.add(valid_file)
+        seen_files.add(test_file)
+    print_dataset(train_raw_data, valid_raw_data, test_raw_data)
+    return train_raw_data, valid_raw_data, test_raw_data
+
+def process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, languages, tokenizer, data_args, training_args):
+
+    def tokenize_train_eval_for_seq2seq(examples):
+        input_ids = []
+        labels = []
+        attention_masks = []
+
+        examples = [
+            {key: value for key, value in zip(examples.keys(), values)}
+            for values in zip(*examples.values())
+        ]
+
+        for example in examples:
+
+            lang = example["lang"]
+
+            if lang in languages:
+
+                text = example["text"]
+
+                tokens = tokenizer(
+                    text,
+                    truncation=True,
+                    max_length=data_args.max_source_length + data_args.max_target_length,
+                    padding=False
+                )["input_ids"]
+
+                if len(tokens) < 30:
+                    continue
+
+                # random split 30%–70%
+                split = random.randint(
+                    int(len(tokens) * 0.4),
+                    int(len(tokens) * 0.6)
+                )
+
+                prefix = tokens[:split]
+                target = tokens[split:]
+
+                # thêm EOS cho target
+                if target[-1] != tokenizer.eos_token_id:
+                    target.append(tokenizer.eos_token_id)
+
+                input_ids.append(prefix)
+                labels.append(target)
+                attention_masks.append([1] * len(prefix))
+
+        model_inputs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_masks,
+            "labels": labels
+        }
+
+        return model_inputs
+    
+    def tokenize_test_for_seq2seq(examples):
+        input_ids = []
+        attention_masks = []
+
+        examples = [
+            {key: value for key, value in zip(examples.keys(), values)}
+            for values in zip(*examples.values())
+        ]
+
+        for example in examples:
+
+            lang = example["lang"]
+
+            if lang in languages:
+
+                text = example["text"]
+
+                tokens = tokenizer(
+                    text,
+                    truncation=True,
+                    max_length=data_args.max_source_length + data_args.max_target_length,
+                    padding=False
+                )["input_ids"]
+
+                split = random.randint(
+                    int(len(tokens) * 0.4),
+                    int(len(tokens) * 0.6)
+                )
+
+                prefix = tokens[:split]
+
+                input_ids.append(prefix)
+                attention_masks.append([1] * len(prefix))
+
+        model_inputs = {
+            "input_ids": input_ids,
+            "attention_mask": attention_masks
+        }
+
+        return model_inputs
+    
+    train_datasets, eval_datasets, test_datasets = None, None, None
+    if training_args.do_train:
+        processed_datasets = []
+        for lang, sub_raw_data in train_raw_data.items():
+            for task, task_data in sub_raw_data.items():
+                train_dataset = task_data["train"]
+                if data_args.max_train_samples is not None:
+                    max_train_samples = min(len(train_dataset), data_args.max_train_samples)
+                    train_dataset = train_dataset.select(range(max_train_samples))
+                with training_args.main_process_first(desc="train dataset map pre-processing"):
+                    train_dataset = train_dataset.map(
+                        tokenize_train_eval_for_seq2seq,
+                        batched=True,
+                        num_proc=data_args.preprocessing_num_workers,
+                        remove_columns=train_dataset.column_names,
+                        load_from_cache_file=not data_args.overwrite_cache,
+                        desc="Running tokenizer on pretrain train dataset",
+                    )
+                    processed_datasets.append(train_dataset)
+        train_datasets = concatenate_datasets(processed_datasets)
+        train_datasets = train_datasets.shuffle(seed=training_args.seed)
+
+    if training_args.do_eval:
+        processed_datasets = []
+        for lang, sub_raw_data in valid_raw_data.items():
+            for task, task_data in sub_raw_data.items():
+                eval_dataset = task_data["validation"]
+                if data_args.max_eval_samples is not None:
+                    max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
+                    eval_dataset = eval_dataset.select(range(max_eval_samples))
+                with training_args.main_process_first(desc="validation dataset map pre-processing"):
+                    eval_dataset = eval_dataset.map(
+                        tokenize_train_eval_for_seq2seq,
+                        batched=True,
+                        num_proc=data_args.preprocessing_num_workers,
+                        remove_columns=eval_dataset.column_names,
+                        load_from_cache_file=not data_args.overwrite_cache,
+                        desc="Running tokenizer on pretrain valid dataset",
+                    )
+                processed_datasets.append(eval_dataset)
+        eval_datasets = concatenate_datasets(processed_datasets)
+        eval_datasets = eval_datasets.shuffle(seed=training_args.seed)
+
+
+    if training_args.do_predict:
+        test_datasets = {}
+        for lang, sub_raw_data in test_raw_data.items():
+            test_datasets[lang] = {}
+            for task, task_data in sub_raw_data.items():
+                test_dataset = task_data["test"]
+                if data_args.max_test_samples is not None:
+                    max_test_samples = min(len(test_dataset), data_args.max_test_samples)
+                    test_dataset = test_dataset.select(range(max_test_samples))
+                with training_args.main_process_first(desc="test dataset map pre-processing"):
+                    test_dataset = test_dataset.map(
+                        tokenize_test_for_seq2seq,
+                        batched=True,
+                        num_proc=data_args.preprocessing_num_workers,
+                        remove_columns=test_dataset.column_names,
+                        load_from_cache_file=not data_args.overwrite_cache,
+                        desc="Running tokenizer on pretrain test dataset",
+                    )
+                test_datasets[lang][task] = test_dataset
+    return train_datasets, eval_datasets, test_datasets

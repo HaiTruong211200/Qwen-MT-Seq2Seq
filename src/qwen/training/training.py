@@ -12,7 +12,7 @@ import numpy as np
 import copy
 import qwen.process_data.collator as collator
 import qwen.utils.utils as utils
-from qwen.process_data.process_data import load_mmt_dataset, process_mmt_data_for_seq2seq
+from qwen.process_data.process_data import load_mmt_dataset, process_mmt_data_for_seq2seq, load_data_pretrain, process_pretrain_data_for_seq2seq
 import re
 from peft import LoraConfig, TaskType, get_peft_model
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
@@ -110,6 +110,7 @@ def main():
     set_seed(training_args.seed)
 
     pairs = set(data_args.language_pairs.split(","))
+    languages = set(data_args.languages.split(","))
     trans_task = data_args.trans_task.split(",")
     logger.info(f"Training lanauage pairs: {pairs}\nTraining translation task: {trans_task}")
 
@@ -204,8 +205,12 @@ def main():
     ## Preprocessing data
     ## Tokenize dataset
     if data_args.mmt_data_path is not None:
-        train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
-        train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, pairs, tokenizer, data_args, training_args)
+        if model_args.run_mode == "init":
+            train_raw_data, valid_raw_data, test_raw_data = load_data_pretrain(languages, data_args, model_args, training_args,logger)
+            train_datasets, eval_datasets, test_datasets = process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, pairs, tokenizer, data_args, training_args)
+        elif model_args.run_mode == "continue":
+            train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
+            train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, pairs, tokenizer, data_args, training_args)
 
         # print("\n" + "!"*40)
         # print(">>> DEBUG: KIỂM TRA MẪU DATASET SAU KHI PROCESS")

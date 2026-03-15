@@ -238,6 +238,11 @@ class DataTrainingArguments:
         default="wmt23"
     )
 
+    languages: str = field(
+        default="de,en,cs,ru,zh,vi,km,lo"
+    )
+
+
 
     def __post_init__(self):
         if self.val_max_target_length is None:
