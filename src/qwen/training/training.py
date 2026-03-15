@@ -108,11 +108,12 @@ def main():
 
     # Set seed before initializing model.
     set_seed(training_args.seed)
+    logger.info(f"Data arguments {data_args}")
 
     pairs = set(data_args.language_pairs.split(","))
     languages = set(data_args.languages.split(","))
     trans_task = data_args.trans_task.split(",")
-    logger.info(f"Training lanauage pairs: {pairs}\nTraining translation task: {trans_task}")
+    logger.info(f"Training lanauage pairs: {pairs}\nTraining translation task: {trans_task} Training languages: {languages}")
 
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
@@ -207,7 +208,7 @@ def main():
     if data_args.mmt_data_path is not None:
         if model_args.run_mode == "init":
             train_raw_data, valid_raw_data, test_raw_data = load_data_pretrain(languages, data_args, model_args, training_args,logger)
-            train_datasets, eval_datasets, test_datasets = process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, pairs, tokenizer, data_args, training_args)
+            train_datasets, eval_datasets, test_datasets = process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, languages, tokenizer, data_args, training_args)
         elif model_args.run_mode == "continue":
             train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
             train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, pairs, tokenizer, data_args, training_args)

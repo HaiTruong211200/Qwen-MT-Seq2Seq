@@ -595,9 +595,9 @@ def load_data_pretrain(languages, data_args, model_args, training_args, logger):
     seen_files =set()
     train_raw_data, valid_raw_data, test_raw_data = defaultdict(dict), defaultdict(dict), defaultdict(dict)
     for lang in languages:
-        train_file = os.path.join(data_args.mmt_data_path, f"pretrain_data.{lang}.json")
-        valid_file = os.path.join(data_args.mmt_data_path, f"pretrain_valid.{lang}.json")
-        test_file = os.path.join(data_args.mmt_data_path, f"pretrain_test.{lang}.json")
+        train_file = os.path.join(data_args.mmt_data_path, lang, f"train.{lang}.json")
+        valid_file = os.path.join(data_args.mmt_data_path, lang, f"valid.{lang}.json")
+        test_file = os.path.join(data_args.mmt_data_path, lang, f"test.{lang}.json")
 
         if not os.path.isfile(train_file):
             logger.info(f"Warning: training file {train_file} does not exist!")
@@ -743,6 +743,7 @@ def process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_d
         for lang, sub_raw_data in train_raw_data.items():
             for task, task_data in sub_raw_data.items():
                 train_dataset = task_data["train"]
+                # print(f"Train datasets column names: {train_dataset.column_names}")
                 if data_args.max_train_samples is not None:
                     max_train_samples = min(len(train_dataset), data_args.max_train_samples)
                     train_dataset = train_dataset.select(range(max_train_samples))
@@ -755,9 +756,12 @@ def process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_d
                         load_from_cache_file=not data_args.overwrite_cache,
                         desc="Running tokenizer on pretrain train dataset",
                     )
-                    processed_datasets.append(train_dataset)
+                processed_datasets.append(train_dataset)
+                # print(f"Train datasets column names: {train_dataset.column_names}")
+                
         train_datasets = concatenate_datasets(processed_datasets)
         train_datasets = train_datasets.shuffle(seed=training_args.seed)
+        # print(f"Finish processing pretrain train dataset, the number of samples is {len(train_datasets)}")
 
     if training_args.do_eval:
         processed_datasets = []
@@ -800,4 +804,7 @@ def process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_d
                         desc="Running tokenizer on pretrain test dataset",
                     )
                 test_datasets[lang][task] = test_dataset
+    # print(f"Train datasets column names: {train_datasets.column_names}")
+    # print(f"Evaluation datasets column names: {eval_datasets.column_names}")
+    # print(f"Test datasets column names: {test_datasets[lang][task].column_names}")
     return train_datasets, eval_datasets, test_datasets
