@@ -681,13 +681,13 @@ def process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_d
                 target = tokens[split:]
 
                 # thêm EOS cho target
-                # if target[-1] != tokenizer.eos_token_id:
-                #     target.append(tokenizer.eos_token_id)
+                if target[-1] != tokenizer.eos_token_id:
+                    target.append(tokenizer.eos_token_id)
 
                 input_ids.append(prefix)
                 labels.append(target)
                 attention_masks.append([1] * len(prefix))
-        check_add_eos(labels, tokenizer)
+        # check_add_eos(labels, tokenizer)
 
         model_inputs = {
             "input_ids": input_ids,
