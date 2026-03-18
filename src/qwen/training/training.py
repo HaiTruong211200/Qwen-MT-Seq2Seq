@@ -130,7 +130,7 @@ def main():
             trust_remote_code=model_args.trust_remote_code,
         )
     
-    elif model_args.model_method == "lamate":
+    elif model_args.model_method == "SailorED":
         # stage 1
         if model_args.run_mode == "init":
             if training_args.report_to == "wandb":
@@ -208,10 +208,10 @@ def main():
     ## Preprocessing data
     ## Tokenize dataset
     if data_args.mmt_data_path is not None:
-        if model_args.run_mode == "init":
+        if model_args.run_mode == "init" or model_args.run_mode == "continue-pretrain":
             train_raw_data, valid_raw_data, test_raw_data = load_data_pretrain(languages, data_args, model_args, training_args,logger)
             train_datasets, eval_datasets, test_datasets = process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, languages, tokenizer, data_args, training_args)
-        elif model_args.run_mode == "continue":
+        elif model_args.run_mode == "sft":
             train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
             train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, pairs, tokenizer, data_args, training_args)
 
