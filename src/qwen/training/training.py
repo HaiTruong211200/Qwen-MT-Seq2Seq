@@ -8,6 +8,7 @@ import torch
 import time
 
 import datasets
+import wandb
 import numpy as np
 import copy
 import qwen.process_data.collator as collator
@@ -21,14 +22,8 @@ import transformers
 from transformers import (
     AutoConfig,
     AutoModelForSeq2SeqLM,
-    AutoTokenizer,
     DataCollatorForSeq2Seq,
     HfArgumentParser,
-    M2M100Tokenizer,
-    MBart50Tokenizer,
-    MBart50TokenizerFast,
-    MBartTokenizer,
-    MBartTokenizerFast,
     Seq2SeqTrainer,
     Seq2SeqTrainingArguments,
     default_data_collator,
@@ -45,9 +40,6 @@ from qwen.utils.check_weight import check_weight
 from qwen.utils.initialize_model_weight import manual_fix_connector_weights
 
 logger = logging.getLogger(__name__)
-
-# A list of all multilingual tokenizer which require src_lang and tgt_lang attributes.
-MULTILINGUAL_TOKENIZERS = [MBartTokenizer, MBartTokenizerFast, MBart50Tokenizer, MBart50TokenizerFast, M2M100Tokenizer]
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
@@ -141,6 +133,11 @@ def main():
     elif model_args.model_method == "lamate":
         # stage 1
         if model_args.run_mode == "init":
+            if training_args.report_to == "wandb":
+                run = wandb.init(
+                    project='Low-Resource-Machine-Translation',
+                    name='SailorED-pretrain'
+                )
             # seting decoder config
             decoder_config = copy.deepcopy(config.to_dict())
             decoder_config["num_hidden_layers"] = model_args.decoder_layer_num
@@ -168,6 +165,11 @@ def main():
             model.freeze_llm() # frozen LLM
         # stage 2
         else:
+            if training_args.report_to == "wandb":
+                run = wandb.init(
+                    project='Low-Resource-Machine-Translation',
+                    name='SailorED-sft'
+                )
             model = QwenCrossAttentionEncDec.from_pretrained(model_args.model_name_or_path, config=config)
             config = LoraConfig(
                 r=model_args.lora_r,
@@ -310,6 +312,8 @@ def main():
         trainer.log_metrics("train", metrics)
         trainer.save_metrics("train", metrics)
         trainer.save_state()
+    if training_args.report_to == "wandb":
+        wandb.finish()
 
     num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
     
