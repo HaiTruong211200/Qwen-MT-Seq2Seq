@@ -33,7 +33,9 @@ class QwenForEncDec(QwenPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
         encoder_method = getattr(config, "encoder_method", "causal")
-        
+        self.contrastive_lambda = getattr(config, "contrastive_lambda", 0.0)
+        self.contrastive_temperature = getattr(config, "contrastive_temperature", 0.1)
+
         ## encoder
         if encoder_method == "causal":
             self.encoder = QwenModelEncoder(config)
@@ -80,6 +82,26 @@ class QwenForEncDec(QwenPreTrainedModel):
     def get_decoder(self):
         return self.decoder
     
+    def compute_contrastive_loss(self, encoder_hidden_states, decoder_hidden_states):
+        # encoder_hidden_states: (batch_size, seq_len, hidden_size)
+        # decoder_hidden_states: (batch_size, seq_len, hidden_size)
+        # attention_mask: (batch_size, seq_len)
+
+        anchor_features = encoder_hidden_states.sum(dim=1) / encoder_hidden_states.size(1)  # (batch_size, hidden_size)
+        positive_features = decoder_hidden_states.sum(dim=1) / decoder_hidden_states.size(1)  # (batch_size, hidden_size)
+
+        npairs, hidden_size = anchor_features.shape
+
+        similarity_function = nn.CosineSimilarity(dim=-1)
+
+        anchor_dot_contrast = similarity_function(anchor_features.expand((npairs, npairs, hidden_size)),
+                                                   positive_features.expand((npairs, npairs, hidden_size)).transpose(0, 1))  # (batch_size, batch_size)
+        
+        contrastive_loss_i = -nn.LogSoftmax(dim=0)(torch.div(anchor_dot_contrast, self.contrastive_temperature)).diag().sum() # (batch_size,)
+
+        contrastive_loss_j = -nn.LogSoftmax(dim=1)(torch.div(anchor_dot_contrast, self.contrastive_temperature)).diag().sum() # (batch_size,)
+        return (contrastive_loss_i + contrastive_loss_j) / 2.0 / npairs
+
     ## referenced from T5
     def forward(
         self,
@@ -152,7 +174,12 @@ class QwenForEncDec(QwenPreTrainedModel):
         if labels is not None:
             loss_fct = CrossEntropyLoss()
             labels = labels.to(logits.device)
-            loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
+            lm_loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
+            if self.contrastive_lambda > 0:
+                contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], decoder_outputs.decoder_hidden_states[-1])
+                loss = lm_loss + self.contrastive_lambda * contrastive_loss
+            else:
+                loss = lm_loss
         
         # import pdb;pdb.set_trace()
         if not return_dict:
