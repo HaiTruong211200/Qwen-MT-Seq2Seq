@@ -176,7 +176,7 @@ class QwenForEncDec(QwenPreTrainedModel):
             labels = labels.to(logits.device)
             lm_loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
             if self.contrastive_lambda > 0:
-                contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], decoder_outputs.decoder_hidden_states[-1])
+                contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], hidden_states)
                 loss = lm_loss + self.contrastive_lambda * contrastive_loss
             else:
                 loss = lm_loss
