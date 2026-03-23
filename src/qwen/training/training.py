@@ -165,6 +165,8 @@ def main():
             model.freeze_llm() # frozen LLM
         # stage 2
         else:
+            config.contrastive_lambda = model_args.contrastive_lambda
+            config.contrastive_temperature = model_args.contrastive_temperature
             if training_args.report_to == "wandb":
                 run = wandb.init(
                     project='Low-Resource-Machine-Translation',
