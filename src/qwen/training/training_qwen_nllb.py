@@ -33,7 +33,7 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint
 
-from qwen.models.enc_dec import QwenCrossAttentionEncDec, QwenEncDecNLLB
+from qwen.models.enc_dec import QwenCrossAttentionEncDec, QwenCrossAttentionEncDecNLLB
 from qwen.config.args import DataTrainingArguments, ModelArguments
 
 from qwen.utils.check_weight import check_weight
@@ -115,6 +115,8 @@ def main():
         trust_remote_code=model_args.trust_remote_code
     )
 
+    decoder_config = AutoConfig.from_pretrained(model_args.decoder_model_name_or_path, trust_remote_code=model_args.trust_remote_code)
+
     add_eos_token = True if model_args.model_method == "default" else False
     tokenizer = utils.load_tokenizer(data_args, model_args, training_args, logger, add_eos_token=add_eos_token)
 
@@ -151,7 +153,20 @@ def main():
             # decoder_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
             # decoder_config = Qwen2Config(**decoder_config)
             # config.decoder =  decoder_config
-            config.decoder = {"model_name_or_path": model_args.decoder_model_name_or_path}
+            decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
+            config.decoder = decoder_config
+            adapter_config = copy.deepcopy(config.to_dict())
+            adapter_config["num_hidden_layers"] = model_args.decoder_layer_num
+            adapter_config["num_encoder_layers"] = config.num_hidden_layers
+            adapter_config["decoder_param_method"] = model_args.decoder_param_method
+            adapter_config["model_method"] = model_args.model_method
+            adapter_config["hidden_size"] = model_args.decoder_hidden_size
+            adapter_config["intermediate_size"] = model_args.decoder_intermediate_size
+            adapter_config["num_attention_heads"] = model_args.decoder_num_attention_heads
+            adapter_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
+            adapter_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
+            adapter_config = Qwen2Config(**adapter_config)
+            config.adapter = adapter_config
             # set encoder config
             config.use_cache = False
             config.is_encoder_decoder = True
@@ -162,7 +177,7 @@ def main():
             print(type(config))
             print("Model Init config:", config)
             state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path)
-            model = QwenEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
+            model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
             model.freeze_llm() # frozen LLM
         # stage 2
         else:
@@ -173,7 +188,7 @@ def main():
                     project='Low-Resource-Machine-Translation',
                     name='SailorED-sft'
                 )
-            model = QwenEncDecNLLB.from_pretrained(model_args.model_name_or_path, config=config)
+            model = QwenCrossAttentionEncDecNLLB.from_pretrained(model_args.model_name_or_path, config=config)
             config = LoraConfig(
                 r=model_args.lora_r,
                 lora_alpha=model_args.lora_alpha,

@@ -48,13 +48,13 @@ class ProjectDown(nn.Module):
 class Connector(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.encoder_project = ProjectDown(encoder_dim=config.hidden_size, decoder_dim=config.decoder.hidden_size)
+        self.encoder_project = ProjectDown(encoder_dim=config.hidden_size, decoder_dim=config.adapter.hidden_size)
         # self.encoder_project = ProjectDown(encoder_dim=4096, decoder_dim=2048)
         self.post_encoder = None
         self.encoder_method = getattr(config, "encoder_method", "causal")
 
         if self.encoder_method == "stack":
-            tiny_encoder_config = copy.deepcopy(config.decoder)
+            tiny_encoder_config = copy.deepcopy(config.adapter)
             # tiny_encoder_config["num_hidden_layers"] = getattr(config, "encoder_layer_num", 8)
             tiny_encoder_config.num_hidden_layers = getattr(config, "encoder_layer_num", 8)
             tiny_encoder_config.layer_types = ["full_attention"] * tiny_encoder_config.num_hidden_layers
