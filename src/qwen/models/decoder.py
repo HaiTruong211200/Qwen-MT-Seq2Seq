@@ -8,6 +8,7 @@ from transformers.utils import logging
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.utils import add_start_docstrings, add_start_docstrings_to_model_forward
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
+from transformers import AutoModelForSeq2SeqLM
 
 from qwen.models.modules.normalization import QwenRMSNorm
 from .base_model import QwenPreTrainedModel
@@ -322,3 +323,53 @@ class QwenCrossAttDecoder(QwenPreTrainedModel):
                 causal_mask = AttentionMaskConverter._unmask_unattended(causal_mask, min_dtype)
 
         return causal_mask
+    
+class NLLBDecoder(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        nllb_model = AutoModelForSeq2SeqLM.from_pretrained(config.nllb_model_name_or_path)
+        self.embed_tokens = nllb_model.get_input_embeddings()
+        self.layers = nllb_model.model.decoder.layers
+        self.norm = nllb_model.model.decoder.layernorm_embedding
+        self.gradient_checkpointing = False
+        self.embed_positions = nllb_model.model.decoder.embed_positions
+        self.vocab_size = nllb_model.config.vocab_size
+        self.lm_head = nllb_model.lm_head
+
+    def forward(
+        self,
+        input_ids: torch.LongTensor = None,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_values: Optional[List[torch.FloatTensor]] = None,
+        inputs_embeds: Optional[torch.FloatTensor] = None,
+        use_cache: Optional[bool] = None,        
+        output_attentions: Optional[bool] = None,
+        output_hidden_states: Optional[bool] = None,
+        return_dict: Optional[bool] = None,
+        encoder_all_hidden_states: Optional[Tuple[torch.Tensor]] = None,
+        cache_position: Optional[torch.LongTensor] = None,
+        encoder_attention_mask:  Optional[torch.Tensor] = None,
+    ) -> Union[Tuple, BaseModelOutputWithPast]:
+        if inputs_embeds is None:
+            inputs_embeds = self.embed_tokens(input_ids) + self.embed_positions(position_ids)
+        
+        hidden_states = inputs_embeds
+
+        for i,decoder_layer in enumerate(self.layers):
+            hidden_states = decoder_layer(
+                hidden_states,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_value=past_key_values,
+                output_attentions=output_attentions,
+                use_cache=use_cache,
+                cache_position=cache_position,
+                encoder_hidden_states=encoder_all_hidden_states[-1],
+                encoder_attention_mask=encoder_attention_mask
+            )[0]
+
+        hidden_states = self.norm(hidden_states)
+
+        return hidden_states

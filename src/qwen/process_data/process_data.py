@@ -146,6 +146,12 @@ LANG_TABLE = {
     "zu": "Zulu",
 }
 
+TOKENIZER_LANG_TABLE = {
+    "vi" : "vie_Latn",
+    "km" : "khm_Khmr",
+    "lo" : "lao_Laoo"
+}
+
 task_prompt = {
     "general_trans":[
         "Translate the following text from {src_lang} into {tgt_lang}.\n{src_lang}: {src}"
@@ -808,4 +814,222 @@ def process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_d
     # print(f"Train datasets column names: {train_datasets.column_names}")
     # print(f"Evaluation datasets column names: {eval_datasets.column_names}")
     # print(f"Test datasets column names: {test_datasets[lang][task].column_names}")
+    return train_datasets, eval_datasets, test_datasets
+
+def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_data, pairs, llm_tokenizer, seq2seq_tokenizer, data_args, training_args):
+
+    def tokenize_train_eval_for_seq2seq(examples):
+        inputs, targets, tgt_langs = [], [], []
+
+        # HF batch -> list[dict]
+        examples = [
+            {key: value for key, value in zip(examples.keys(), values)}
+            for values in zip(*examples.values())
+        ]
+
+        for example in examples:
+            src_lang, tgt_lang = example["src_lang"], example["tgt_lang"]
+
+            if f"{src_lang}-{tgt_lang}" in pairs:
+                prompt, tgt_txt = get_prompt(src_lang, tgt_lang, example)
+                inputs.append(prompt)
+                targets.append(tgt_txt)
+                tgt_langs.append(tgt_lang)
+
+            if do_data_reverse(pairs, example):
+                prompt, tgt_txt = get_prompt(tgt_lang, src_lang, example)
+                inputs.append(prompt)
+                targets.append(tgt_txt)
+                tgt_langs.append(src_lang)
+
+        # =========================
+        # 1. TOKENIZE INPUT (LLM)
+        # =========================
+        model_inputs = llm_tokenizer(
+            inputs,
+            max_length=data_args.max_source_length,
+            padding=False,
+            truncation=True,
+            return_attention_mask=True,
+        )
+
+        # =========================
+        # 2. TOKENIZE TARGET (NLLB)
+        # =========================
+        labels = seq2seq_tokenizer(
+            text_target=targets,
+            max_length=data_args.max_target_length,
+            padding=False,
+            truncation=True,
+            return_attention_mask=True,
+        )
+
+        # =========================
+        # 3. ADD LANG TOKEN (BOS)
+        # =========================
+        # ⚠️ cực quan trọng với NLLB
+        new_labels = []
+        new_attention_mask = []
+
+        for tgt_lang, ids, mask in zip(
+            tgt_langs,
+            labels["input_ids"],
+            labels["attention_mask"]
+        ):
+            bos_id = seq2seq_tokenizer.convert_tokens_to_ids(TOKENIZER_LANG_TABLE[tgt_lang])
+
+            if ids[0] != bos_id:
+                ids = [bos_id] + ids
+            mask = [1] + mask
+
+            new_labels.append(ids)
+            new_attention_mask.append(mask)
+
+        labels["input_ids"] = new_labels
+        labels["attention_mask"] = new_attention_mask
+
+        # =========================
+        # 4. ADD EOS nếu thiếu
+        # =========================
+        check_add_eos(labels, seq2seq_tokenizer)
+
+        # =========================
+        # 5. MASK padding -> -100
+        # =========================
+        # final_labels = []
+        # for ids, mask in zip(labels["input_ids"], labels["attention_mask"]):
+        #     final_labels.append([
+        #         token if m == 1 else -100
+        #         for token, m in zip(ids, mask)
+        #     ])
+        forced_bos_token_ids = [
+            seq2seq_tokenizer.convert_tokens_to_ids(TOKENIZER_LANG_TABLE[lang])
+            for lang in tgt_langs
+        ]
+
+        # model_inputs["labels"] = labels["input_ids"]  # dùng để tính metric
+        model_inputs["forced_bos_token_id"] = forced_bos_token_ids
+
+        model_inputs["labels"] = labels
+
+        return model_inputs
+
+    def tokenize_test_for_seq2seq(examples):
+        prompts, targets, tgt_langs = [], [], []
+
+        # HF batch -> list[dict]
+        examples = [
+            {key: value for key, value in zip(examples.keys(), values)}
+            for values in zip(*examples.values())
+        ]
+
+        for example in examples:
+            src_lang, tgt_lang = example["src_lang"], example["tgt_lang"]
+
+            if f"{src_lang}-{tgt_lang}" in pairs:
+                prompt, tgt_txt = get_prompt(src_lang, tgt_lang, example)
+                prompts.append(prompt)
+                targets.append(tgt_txt)
+                tgt_langs.append(tgt_lang)
+
+        # =========================
+        # 1. TOKENIZE INPUT (LLM)
+        # =========================
+        model_inputs = llm_tokenizer(
+            prompts,
+            max_length=data_args.max_source_length,
+            padding=False,
+            truncation=True,
+            return_attention_mask=True,
+        )
+
+        # =========================
+        # 2. TOKENIZE TARGET (for evaluation only)
+        # =========================
+        # labels = seq2seq_tokenizer(
+        #     text_target=targets,
+        #     max_length=data_args.max_target_length,
+        #     padding=False,
+        #     truncation=True,
+        # )
+
+        # check_add_eos(labels, seq2seq_tokenizer)
+
+        # # =========================
+        # # 3. FORCE TARGET LANGUAGE (QUAN TRỌNG)
+        # # =========================
+        forced_bos_token_ids = [
+            seq2seq_tokenizer.convert_tokens_to_ids(TOKENIZER_LANG_TABLE[lang])
+            for lang in tgt_langs
+        ]
+
+        # model_inputs["labels"] = labels["input_ids"]  # dùng để tính metric
+        model_inputs["forced_bos_token_id"] = forced_bos_token_ids
+
+        return model_inputs
+
+    train_datasets, eval_datasets, test_datasets = None, None, None
+    
+    if training_args.do_train:
+        processed_datasets = []
+        for lg_pair, sub_raw_data in train_raw_data.items():
+            for task, task_data in sub_raw_data.items():
+                train_dataset = task_data["train"]
+                if data_args.max_train_samples is not None:
+                    max_train_samples = min(len(train_dataset), data_args.max_train_samples)
+                    train_dataset = train_dataset.select(range(max_train_samples))
+                with training_args.main_process_first(desc="train dataset map pre-processing"):
+                    train_dataset = train_dataset.map(
+                        tokenize_train_eval_for_seq2seq,
+                        batched=True,
+                        num_proc=data_args.preprocessing_num_workers,
+                        remove_columns=train_dataset.column_names,
+                        load_from_cache_file=not data_args.overwrite_cache,
+                        desc="Running tokenizer on MMT train dataset",
+                    )
+                processed_datasets.append(train_dataset)   
+        train_datasets = concatenate_datasets(processed_datasets)
+        train_datasets = train_datasets.shuffle(seed=training_args.seed)
+        
+    if training_args.do_eval:
+        processed_datasets = []
+        for lg_pair, sub_raw_data in valid_raw_data.items():
+            for task, task_data in sub_raw_data.items():
+                eval_dataset = task_data["validation"]
+                if data_args.max_eval_samples is not None:
+                    max_eval_samples = min(len(eval_dataset), data_args.max_eval_samples)
+                    eval_dataset = eval_dataset.select(range(max_eval_samples))
+                with training_args.main_process_first(desc="validation dataset map pre-processing"):
+                    eval_dataset = eval_dataset.map(
+                        tokenize_train_eval_for_seq2seq,
+                        batched=True,
+                        num_proc=data_args.preprocessing_num_workers,
+                        remove_columns=eval_dataset.column_names,
+                        load_from_cache_file=not data_args.overwrite_cache,
+                        desc="Running tokenizer valid dataset",
+                    )
+                processed_datasets.append(eval_dataset)
+        eval_datasets = concatenate_datasets(processed_datasets)
+        eval_datasets = eval_datasets.shuffle(seed=training_args.seed)
+
+    if training_args.do_predict:
+        test_datasets = {}
+        for lg_pair, sub_raw_data in test_raw_data.items():
+            test_datasets[lg_pair] = {}
+            for task, task_data in sub_raw_data.items():
+                test_dataset = task_data["test"]
+                if data_args.max_test_samples is not None:
+                    max_test_samples = min(len(test_dataset), data_args.max_test_samples)
+                    test_dataset = test_dataset.select(range(max_test_samples))
+                with training_args.main_process_first(desc="test dataset map pre-processing"):
+                    test_dataset = test_dataset.map(
+                        tokenize_test_for_seq2seq,
+                        batched=True,
+                        num_proc=data_args.preprocessing_num_workers,
+                        remove_columns=test_dataset.column_names,
+                        load_from_cache_file=not data_args.overwrite_cache,
+                        desc="Running tokenizer test dataset",
+                    )
+                test_datasets[lg_pair][task] = test_dataset
+    
     return train_datasets, eval_datasets, test_datasets
