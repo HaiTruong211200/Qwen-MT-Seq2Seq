@@ -13,7 +13,13 @@ import numpy as np
 import copy
 import qwen.process_data.collator as collator
 import qwen.utils.utils as utils
-from qwen.process_data.process_data import load_mmt_dataset, process_mmt_data_for_seq2seq, load_data_pretrain, process_pretrain_data_for_seq2seq
+from qwen.process_data.process_data import (
+    load_mmt_dataset, 
+    process_mmt_data_for_seq2seq, 
+    load_data_pretrain, 
+    process_pretrain_data_for_seq2seq,
+    process_mmt_data_for_seq2seq_ver2,
+)
 import re
 from peft import LoraConfig, TaskType, get_peft_model
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
@@ -29,7 +35,8 @@ from transformers import (
     default_data_collator,
     set_seed,
     EarlyStoppingCallback,
-    GenerationConfig
+    GenerationConfig,
+    NllbTokenizer
 )
 from transformers.trainer_utils import get_last_checkpoint
 
@@ -118,7 +125,8 @@ def main():
     decoder_config = AutoConfig.from_pretrained(model_args.decoder_model_name_or_path, trust_remote_code=model_args.trust_remote_code)
 
     add_eos_token = True if model_args.model_method == "default" else False
-    tokenizer = utils.load_tokenizer(data_args, model_args, training_args, logger, add_eos_token=add_eos_token)
+    llm_tokenizer = utils.load_tokenizer(data_args, model_args, training_args, logger, add_eos_token=add_eos_token)
+    seq2seq_tokenizer = NllbTokenizer.from_pretrained(model_args.decoder_model_name_or_path, trust_remote_code=model_args.trust_remote_code)
 
 
     if model_args.model_method == "default":
@@ -215,10 +223,10 @@ def main():
     model = utils.set_model_special_tokens(model, model_args.model_name_or_path)
     print(model.generation_config)
 
-    embedding_size = model.get_input_embeddings().weight.shape[0]
+    # embedding_size = model.get_input_embeddings().weight.shape[0]
 
-    if len(tokenizer) > embedding_size:
-        model.resize_token_embeddings(len(tokenizer))
+    # if len(tokenizer) > embedding_size:
+    #     model.resize_token_embeddings(len(tokenizer))
 
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
@@ -226,12 +234,12 @@ def main():
     ## Preprocessing data
     ## Tokenize dataset
     if data_args.mmt_data_path is not None:
-        if model_args.run_mode == "init" or model_args.run_mode == "continue-pretrain":
-            train_raw_data, valid_raw_data, test_raw_data = load_data_pretrain(languages, data_args, model_args, training_args,logger)
-            train_datasets, eval_datasets, test_datasets = process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, languages, tokenizer, data_args, training_args)
-        elif model_args.run_mode == "sft":
-            train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
-            train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, pairs, tokenizer, data_args, training_args)
+        # if model_args.run_mode == "init" or model_args.run_mode == "continue-pretrain":
+        #     train_raw_data, valid_raw_data, test_raw_data = load_data_pretrain(languages, data_args, model_args, training_args,logger)
+        #     train_datasets, eval_datasets, test_datasets = process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, languages, tokenizer, data_args, training_args)
+        # elif model_args.run_mode == "sft":
+        train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
+        train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_data, pairs, llm_tokenizer, seq2seq_tokenizer, data_args, training_args)
 
         # print("\n" + "!"*40)
         # print(">>> DEBUG: KIỂM TRA MẪU DATASET SAU KHI PROCESS")
@@ -272,14 +280,15 @@ def main():
     else:
         if model_args.model_method == "default":
             data_collator = DataCollatorForSeq2Seq(
-                tokenizer,
+                llm_tokenizer,
                 model=model,
                 label_pad_token_id=label_pad_token_id,
                 pad_to_multiple_of=8 if training_args.fp16 else None,
             )
         elif model_args.model_method in ["lamate", "SailorED"]:
-            data_collator = collator.DataCollatorForLamate(
-                tokenizer,
+            data_collator = collator.DataCollatorForQwenNLLB(
+                llm_tokenizer,
+                seq2seq_tokenizer,
                 model=model,
                 label_pad_token_id=label_pad_token_id,
                 pad_to_multiple_of=8 if training_args.fp16 else None
@@ -300,7 +309,7 @@ def main():
         args=training_args,
         train_dataset=train_datasets if training_args.do_train else None,
         eval_dataset=eval_datasets if training_args.do_eval else None,
-        tokenizer=tokenizer,
+        tokenizer=llm_tokenizer,
         data_collator=data_collator,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=model_args.patience)],
         optimizers=(optimizer, None)

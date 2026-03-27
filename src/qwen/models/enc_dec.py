@@ -520,7 +520,8 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
             print("Using combined LLM Encoder!")
             self.encoder = QwenModelCombineEncoder(config)
         
-        decoder_config = AutoConfig.from_pretrained(config.decoder["model_name_or_path"])
+        decoder_config = AutoConfig.from_pretrained(config.decoder.model_name_or_path)
+        decoder_config.model_name_or_path = config.decoder.model_name_or_path
         self.decoder = NLLBDecoder(decoder_config)
         self.lm_head = self.decoder.lm_head
 

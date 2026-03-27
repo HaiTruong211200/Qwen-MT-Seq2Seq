@@ -328,10 +328,10 @@ class NLLBDecoder(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        nllb_model = AutoModelForSeq2SeqLM.from_pretrained(config.nllb_model_name_or_path)
-        self.embed_tokens = nllb_model.get_input_embeddings()
+        nllb_model = AutoModelForSeq2SeqLM.from_pretrained(config.model_name_or_path)
+        self.embed_tokens = nllb_model.model.decoder.embed_tokens
         self.layers = nllb_model.model.decoder.layers
-        self.norm = nllb_model.model.decoder.layernorm_embedding
+        self.norm = nllb_model.model.decoder.layer_norm
         self.gradient_checkpointing = False
         self.embed_positions = nllb_model.model.decoder.embed_positions
         self.vocab_size = nllb_model.config.vocab_size

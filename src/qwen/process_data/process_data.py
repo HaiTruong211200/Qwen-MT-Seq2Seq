@@ -821,7 +821,6 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
     def tokenize_train_eval_for_seq2seq(examples):
         inputs, targets, tgt_langs = [], [], []
 
-        # HF batch -> list[dict]
         examples = [
             {key: value for key, value in zip(examples.keys(), values)}
             for values in zip(*examples.values())
@@ -842,9 +841,6 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
                 targets.append(tgt_txt)
                 tgt_langs.append(src_lang)
 
-        # =========================
-        # 1. TOKENIZE INPUT (LLM)
-        # =========================
         model_inputs = llm_tokenizer(
             inputs,
             max_length=data_args.max_source_length,
@@ -852,10 +848,8 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
             truncation=True,
             return_attention_mask=True,
         )
+        model_inputs = dict(model_inputs)
 
-        # =========================
-        # 2. TOKENIZE TARGET (NLLB)
-        # =========================
         labels = seq2seq_tokenizer(
             text_target=targets,
             max_length=data_args.max_target_length,
@@ -863,54 +857,33 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
             truncation=True,
             return_attention_mask=True,
         )
+        labels = dict(labels)
 
-        # =========================
-        # 3. ADD LANG TOKEN (BOS)
-        # =========================
-        # ⚠️ cực quan trọng với NLLB
-        new_labels = []
-        new_attention_mask = []
+        new_labels, new_masks = [], []
 
         for tgt_lang, ids, mask in zip(
-            tgt_langs,
-            labels["input_ids"],
-            labels["attention_mask"]
+            tgt_langs, labels["input_ids"], labels["attention_mask"]
         ):
-            bos_id = seq2seq_tokenizer.convert_tokens_to_ids(TOKENIZER_LANG_TABLE[tgt_lang])
+            bos_id = seq2seq_tokenizer.convert_tokens_to_ids(
+                TOKENIZER_LANG_TABLE[tgt_lang]
+            )
 
             if ids[0] != bos_id:
                 ids = [bos_id] + ids
-            mask = [1] + mask
+                mask = [1] + mask
 
             new_labels.append(ids)
-            new_attention_mask.append(mask)
+            new_masks.append(mask)
 
-        labels["input_ids"] = new_labels
-        labels["attention_mask"] = new_attention_mask
+        # mask padding -> -100
+        final_labels = []
+        for ids, mask in zip(new_labels, new_masks):
+            final_labels.append([
+                token if m == 1 else -100
+                for token, m in zip(ids, mask)
+            ])
 
-        # =========================
-        # 4. ADD EOS nếu thiếu
-        # =========================
-        check_add_eos(labels, seq2seq_tokenizer)
-
-        # =========================
-        # 5. MASK padding -> -100
-        # =========================
-        # final_labels = []
-        # for ids, mask in zip(labels["input_ids"], labels["attention_mask"]):
-        #     final_labels.append([
-        #         token if m == 1 else -100
-        #         for token, m in zip(ids, mask)
-        #     ])
-        forced_bos_token_ids = [
-            seq2seq_tokenizer.convert_tokens_to_ids(TOKENIZER_LANG_TABLE[lang])
-            for lang in tgt_langs
-        ]
-
-        # model_inputs["labels"] = labels["input_ids"]  # dùng để tính metric
-        model_inputs["forced_bos_token_id"] = forced_bos_token_ids
-
-        model_inputs["labels"] = labels
+        model_inputs["labels"] = new_labels
 
         return model_inputs
 
