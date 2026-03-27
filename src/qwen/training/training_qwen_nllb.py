@@ -239,42 +239,43 @@ def main():
         #     train_datasets, eval_datasets, test_datasets = process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, languages, tokenizer, data_args, training_args)
         # elif model_args.run_mode == "sft":
         train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
+        print(train_raw_data.keys())
         train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_data, pairs, llm_tokenizer, seq2seq_tokenizer, data_args, training_args)
 
         # print("\n" + "!"*40)
         # print(">>> DEBUG: KIỂM TRA MẪU DATASET SAU KHI PROCESS")
         
-        # try:
-        #     # Lấy 1 mẫu đầu tiên từ tập train
-        #     sample = train_datasets[0]
+        try:
+            # Lấy 1 mẫu đầu tiên từ tập train
+            sample = train_datasets[0]
             
-        #     # 1. Kiểm tra các Keys (Quan trọng nhất)
-        #     print(f"👉 Các keys có trong dataset: {list(sample.keys())}")
+            # 1. Kiểm tra các Keys (Quan trọng nhất)
+            print(f"👉 Các keys có trong dataset: {list(sample.keys())}")
             
-        #     # 2. Check xem có 'labels' không?
-        #     if "labels" not in sample:
-        #         print("❌ LỖI NGHIÊM TRỌNG: Không thấy cột 'labels'. Collator sẽ không tạo decoder_input_ids!")
-        #         # Thử đoán xem nó đang tên là gì
-        #         print(f"   (Có thể nó đang tên là 'target', 'translation' hoặc 'output'?)")
-        #     else:
-        #         print("✅ Đã tìm thấy cột 'labels'.")
+            # 2. Check xem có 'labels' không?
+            if "labels" not in sample:
+                print("❌ LỖI NGHIÊM TRỌNG: Không thấy cột 'labels'. Collator sẽ không tạo decoder_input_ids!")
+                # Thử đoán xem nó đang tên là gì
+                print(f"   (Có thể nó đang tên là 'target', 'translation' hoặc 'output'?)")
+            else:
+                print("✅ Đã tìm thấy cột 'labels'.")
 
-        #     # 3. In thử nội dung
-        #     print("-" * 30)
-        #     print(f"Input IDs (len={len(sample['input_ids'])}): {sample['input_ids'][:10]} ...")
-        #     print(f"Input Text:  {tokenizer.decode(sample['input_ids'], skip_special_tokens=True)}")
+            # 3. In thử nội dung
+            print("-" * 30)
+            print(f"Input IDs (len={len(sample['input_ids'])}): {sample['input_ids'][:10]} ...")
+            print(f"Input Text:  {llm_tokenizer.decode(sample['input_ids'], skip_special_tokens=True)}")
             
-        #     if "labels" in sample:
-        #         print("-" * 30)
-        #         print(f"Labels IDs (len={len(sample['labels'])}): {sample['labels'][:10]} ...")
-        #         print(f"Labels Text: {tokenizer.decode(sample['labels'], skip_special_tokens=True)}")
+            if "labels" in sample:
+                print("-" * 30)
+                print(f"Labels IDs (len={len(sample['labels'])}): {sample['labels'][:10]} ...")
+                print(f"Labels Text: {seq2seq_tokenizer.decode(sample['labels'], skip_special_tokens=True)}")
             
-        # except Exception as e:
-        #     print(f"❌ Không thể in mẫu dataset: {e}")
+        except Exception as e:
+            print(f"❌ Không thể in mẫu dataset: {e}")
             
-        # print("!"*40 + "\n")
+        print("!"*40 + "\n")
     ## Data collator
-    label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else tokenizer.pad_token_id
+    label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else llm_tokenizer.pad_token_id
     if data_args.pad_to_max_length:
         data_collator = default_data_collator
     else:

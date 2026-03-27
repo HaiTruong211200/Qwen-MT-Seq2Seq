@@ -70,24 +70,43 @@ def check_weight(model):
     decoder = model.get_decoder()
     for idx, layer in enumerate(decoder.layers):
         print(f"Layer {idx}")
+    #     print(
+    #         f"Shape: {layer.input_layernorm.weight.shape}"
+    #         f"Input RMS Weight | Max: {layer.input_layernorm.weight.max().item():.4f} "
+    #         f"| Min: {layer.input_layernorm.weight.min().item():.4f} "
+    #         f"| Mean: {layer.input_layernorm.weight.mean().item():.4f} "
+    #         f"| Std: {layer.input_layernorm.weight.std().item():.4f}"
+    #      )
+    #     print(
+    #         f"Shape: {layer.post_attention_layernorm.weight.shape}"
+    #         f"Post RMS Weight | Max: {layer.post_attention_layernorm.weight.max().item():.4f} "
+    #         f"| Min: {layer.post_attention_layernorm.weight.min().item():.4f} "
+    #         f"| Mean: {layer.post_attention_layernorm.weight.mean().item():.4f} "
+    #         f"| Std: {layer.post_attention_layernorm.weight.std().item():.4f}")
+    # decoder_norm = decoder.norm
+    # print(f"Decoder RMS norm Weight | Max: {decoder_norm.weight.max().item():.4f} "
+    #       f"| Min: {decoder_norm.weight.min().item():.4f} "
+    #       f"| Mean: {decoder_norm.weight.mean().item():.4f} "
+    #       f"| Std: {decoder_norm.weight.std().item():.4f}")
         print(
-            f"Shape: {layer.input_layernorm.weight.shape}"
-            f"Input RMS Weight | Max: {layer.input_layernorm.weight.max().item():.4f} "
-            f"| Min: {layer.input_layernorm.weight.min().item():.4f} "
-            f"| Mean: {layer.input_layernorm.weight.mean().item():.4f} "
-            f"| Std: {layer.input_layernorm.weight.std().item():.4f}"
+            f"Shape: {layer.self_attn_layer_norm.weight.shape}"
+            f"Input RMS Weight | Max: {layer.self_attn_layer_norm.weight.max().item():.4f} "
+            f"| Min: {layer.self_attn_layer_norm.weight.min().item():.4f} "
+            f"| Mean: {layer.self_attn_layer_norm.weight.mean().item():.4f} "
+            f"| Std: {layer.self_attn_layer_norm.weight.std().item():.4f}"
          )
         print(
-            f"Shape: {layer.post_attention_layernorm.weight.shape}"
-            f"Post RMS Weight | Max: {layer.post_attention_layernorm.weight.max().item():.4f} "
-            f"| Min: {layer.post_attention_layernorm.weight.min().item():.4f} "
-            f"| Mean: {layer.post_attention_layernorm.weight.mean().item():.4f} "
-            f"| Std: {layer.post_attention_layernorm.weight.std().item():.4f}")
-    decoder_norm = decoder.norm
-    print(f"Decoder RMS norm Weight | Max: {decoder_norm.weight.max().item():.4f} "
-          f"| Min: {decoder_norm.weight.min().item():.4f} "
-          f"| Mean: {decoder_norm.weight.mean().item():.4f} "
-          f"| Std: {decoder_norm.weight.std().item():.4f}")
+            f"Shape: {layer.encoder_attn_layer_norm.weight.shape}"
+            f"Post RMS Weight | Max: {layer.encoder_attn_layer_norm.weight.max().item():.4f} "
+            f"| Min: {layer.encoder_attn_layer_norm.weight.min().item():.4f} "
+            f"| Mean: {layer.encoder_attn_layer_norm.weight.mean().item():.4f} "
+            f"| Std: {layer.encoder_attn_layer_norm.weight.std().item():.4f}")
+    # decoder_norm = decoder.norm
+    # print(f"Decoder RMS norm Weight | Max: {decoder_norm.weight.max().item():.4f} "
+    #       f"| Min: {decoder_norm.weight.min().item():.4f} "
+    #       f"| Mean: {decoder_norm.weight.mean().item():.4f} "
+    #       f"| Std: {decoder_norm.weight.std().item():.4f}")
+    
     
     lm_head = model.lm_head
     print(f"Lm head shape: {lm_head.weight.shape}")

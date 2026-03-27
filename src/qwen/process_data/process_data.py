@@ -840,7 +840,9 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
                 inputs.append(prompt)
                 targets.append(tgt_txt)
                 tgt_langs.append(src_lang)
-
+        for target in targets:
+            if target == None:
+                print("Detect None target, replace it with empty string!")
         model_inputs = llm_tokenizer(
             inputs,
             max_length=data_args.max_source_length,
@@ -851,7 +853,7 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
         model_inputs = dict(model_inputs)
 
         labels = seq2seq_tokenizer(
-            text_target=targets,
+            targets,
             max_length=data_args.max_target_length,
             padding=False,
             truncation=True,
@@ -868,8 +870,8 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
                 TOKENIZER_LANG_TABLE[tgt_lang]
             )
 
-            if ids[0] != bos_id:
-                ids = [bos_id] + ids
+            if ids[0] == seq2seq_tokenizer.convert_tokens_to_ids("eng_Latn"):
+                ids[0] = bos_id
                 mask = [1] + mask
 
             new_labels.append(ids)

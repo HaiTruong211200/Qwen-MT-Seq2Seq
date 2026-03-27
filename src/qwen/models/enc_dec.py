@@ -525,6 +525,24 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         self.decoder = NLLBDecoder(decoder_config)
         self.lm_head = self.decoder.lm_head
 
+    def get_input_embeddings(self):
+        return self.encoder.embed_tokens
+
+    def set_input_embeddings(self, value):
+        self.encoder.embed_tokens = value
+
+    def get_output_embeddings(self):
+        return self.lm_head
+
+    def set_output_embeddings(self, new_embeddings):
+        self.lm_head = new_embeddings
+
+    def get_encoder(self):
+        return self.encoder
+
+    def get_decoder(self):
+        return self.decoder
+
     def compute_contrastive_loss(self, encoder_hidden_states, decoder_hidden_states):
         # encoder_hidden_states: (batch_size, seq_len, hidden_size)
         # decoder_hidden_states: (batch_size, seq_len, hidden_size)
