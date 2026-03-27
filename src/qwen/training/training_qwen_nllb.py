@@ -184,7 +184,7 @@ def main():
             # make param dict
             print(type(config))
             print("Model Init config:", config)
-            state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path)
+            state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path, seq2seq_model_name_or_path=model_args.decoder_model_name_or_path)
             model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
             model.freeze_llm() # frozen LLM
         # stage 2

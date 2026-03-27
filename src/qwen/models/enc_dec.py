@@ -206,6 +206,7 @@ class QwenForEncDec(QwenPreTrainedModel):
             past_key_values=decoder_outputs.past_key_values,
             decoder_hidden_states=decoder_outputs.hidden_states,
             decoder_attentions=decoder_outputs.attentions,
+
             cross_attentions=None,
             encoder_last_hidden_state=encoder_outputs.last_hidden_state,
             encoder_hidden_states=encoder_outputs.hidden_states,
@@ -526,7 +527,7 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         self.lm_head = self.decoder.lm_head
 
     def get_input_embeddings(self):
-        return self.encoder.embed_tokens
+        return self.decoder.embed_tokens
 
     def set_input_embeddings(self, value):
         self.encoder.embed_tokens = value
@@ -634,6 +635,7 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
             cache_position=cache_position,
             position_ids=position_ids,
         )
+        # print(decoder_outputs.keys())
         hidden_states = decoder_outputs[0]
         ## compute loss 
         pretraining_tp = getattr(self.config, "pretraining_tp", 1)
@@ -665,9 +667,10 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         return Seq2SeqLMOutput(
             loss=loss,
             logits=logits,
-            past_key_values=decoder_outputs.past_key_values,
-            decoder_hidden_states=decoder_outputs.hidden_states,
-            decoder_attentions=decoder_outputs.attentions,
+            # past_key_values=decoder_outputs.past_key_value,
+            # decoder_hidden_states=decoder_outputs.hidden_states,
+            # decoder_attentions=decoder_outputs.attentions,
+            decoder_hidden_states=decoder_outputs,
             cross_attentions=None,
             encoder_last_hidden_state=encoder_outputs.last_hidden_state,
             encoder_hidden_states=encoder_outputs.hidden_states,

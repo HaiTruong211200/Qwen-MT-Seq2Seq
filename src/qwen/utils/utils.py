@@ -9,6 +9,7 @@ from transformers import (
     CONFIG_MAPPING,
     AutoConfig,
     AutoModelForCausalLM,
+    AutoModelForSeq2SeqLM,
     AutoTokenizer,
     LlamaTokenizer,
 )
@@ -68,7 +69,7 @@ def load_checkpoint(model_path):
 
 from transformers import AutoModelForCausalLM
 
-def make_model_state_dict(model_path):
+def make_model_state_dict(model_path, seq2seq_model_name_or_path):
 
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
@@ -77,11 +78,27 @@ def make_model_state_dict(model_path):
 
     state = model.state_dict()
 
+    seq2seq_model = AutoModelForSeq2SeqLM.from_pretrained(
+        seq2seq_model_name_or_path,
+        trust_remote_code=True
+    )
+
+    seq2seq_state = seq2seq_model.state_dict()
+
     new_state = {}
     for key, value in state.items():
         if key.startswith("model"):
             key = "encoder" + key[5:]
         new_state[key] = value
+
+    for key, value in seq2seq_state.items():
+        if key.startswith("model.decoder"):
+            new_key = "decoder" + key[13:]
+            new_state[new_key] = value
+        elif key.startswith("model.lm_head"):
+            new_key = "lm_head" + key[13:]
+            new_state[new_key] = value
+
 
     return new_state
 

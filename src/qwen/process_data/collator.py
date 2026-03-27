@@ -257,9 +257,9 @@ class DataCollatorForQwenNLLB:
 
         features = {
             "input_ids": torch.tensor(np.array(input_ids).astype(np.int64)),
-            "attention_mask": torch.tensor(np.array(attention_mask).astype(np.int64)),
+            "attention_mask": torch.tensor(np.array(attention_mask).astype(bool)),
             "decoder_input_ids": torch.tensor(np.array(decoder_input_ids).astype(np.int64)),
-            "decoder_attention_mask": torch.tensor(np.array(decoder_attention_mask).astype(np.int64)),
+            "decoder_attention_mask": torch.tensor(np.array(decoder_attention_mask).astype(bool)),
             "labels": torch.tensor(np.array(labels).astype(np.int64)),
         }
         # print(f"Decoder shape: {features['labels'].shape}")
