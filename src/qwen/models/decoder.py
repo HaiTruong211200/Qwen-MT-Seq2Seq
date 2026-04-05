@@ -329,11 +329,12 @@ class NLLBDecoder(nn.Module):
         super().__init__()
         self.config = config
         nllb_model = AutoModelForSeq2SeqLM.from_pretrained(config.model_name_or_path)
-        self.embed_tokens = nllb_model.model.decoder.embed_tokens
-        self.layers = nllb_model.model.decoder.layers
-        self.norm = nllb_model.model.decoder.layer_norm
-        self.gradient_checkpointing = False
-        self.embed_positions = nllb_model.model.decoder.embed_positions
+        self.decoder = nllb_model.model.decoder
+        # self.embed_tokens = nllb_model.model.decoder.embed_tokens
+        # self.layers = nllb_model.model.decoder.layers
+        # self.norm = nllb_model.model.decoder.layer_norm
+        # self.gradient_checkpointing = False
+        # self.embed_positions = nllb_model.model.decoder.embed_positions
         self.vocab_size = nllb_model.config.vocab_size
         self.lm_head = nllb_model.lm_head
 
@@ -353,23 +354,34 @@ class NLLBDecoder(nn.Module):
         encoder_attention_mask:  Optional[torch.Tensor] = None,
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         if inputs_embeds is None:
-            inputs_embeds = self.embed_tokens(input_ids) + self.embed_positions(position_ids)
+            inputs_embeds = self.decoder.embed_tokens(input_ids) + self.decoder.embed_positions(position_ids)
+        
         
         hidden_states = inputs_embeds
 
-        for i,decoder_layer in enumerate(self.layers):
-            hidden_states = decoder_layer(
-                hidden_states,
-                attention_mask=attention_mask,
-                # position_ids=position_ids,
-                past_key_value=past_key_values,
-                output_attentions=output_attentions,
-                use_cache=use_cache,
-                cache_position=cache_position,
-                encoder_hidden_states=encoder_all_hidden_states[-1],
-                encoder_attention_mask=encoder_attention_mask
-            )[0]
+        # for i,decoder_layer in enumerate(self.layers):
+        #     hidden_states = decoder_layer(
+        #         hidden_states,
+        #         attention_mask=attention_mask,
+        #         # position_ids=position_ids,
+        #         past_key_value=past_key_values,
+        #         output_attentions=output_attentions,
+        #         use_cache=use_cache,
+        #         cache_position=cache_position,
+        #         encoder_hidden_states=encoder_all_hidden_states[-1],
+        #         encoder_attention_mask=encoder_attention_mask
+        #     )[0]
 
-        hidden_states = self.norm(hidden_states)
+        # hidden_states = self.norm(hidden_states)
+        outputs = self.decoder(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            past_key_values=past_key_values,
+            encoder_hidden_states=encoder_all_hidden_states[-1],
+            encoder_attention_mask=encoder_attention_mask,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+        )
 
-        return hidden_states
+        return outputs

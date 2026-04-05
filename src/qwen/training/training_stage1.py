@@ -49,6 +49,7 @@ from qwen.utils.initialize_model_weight import manual_fix_connector_weights
 logger = logging.getLogger(__name__)
 
 def main():
+    # 1. Parse arguments
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
     if len(sys.argv) == 2 and sys.argv[1].endswith(".json"):
         # If we pass only one argument to the script and it's the path to a json file,
@@ -57,15 +58,7 @@ def main():
     else:
         model_args, data_args, training_args = parser.parse_args_into_dataclasses()
 
-    if model_args.use_auth_token is not None:
-        warnings.warn(
-            "The `use_auth_token` argument is deprecated and will be removed in v4.34. Please use `token` instead.",
-            FutureWarning,
-        )
-        if model_args.token is not None:
-            raise ValueError("`token` and `use_auth_token` are both specified. Please set only the argument `token`.")
-        model_args.token = model_args.use_auth_token
-
+    # 2. Setup logging
     logging.basicConfig(
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
@@ -73,7 +66,6 @@ def main():
     )
 
     if training_args.should_log:
-        # The default of training_args.log_level is passive, so we set log level at info here to have that default.
         transformers.utils.logging.set_verbosity_info()
 
     log_level = training_args.get_process_log_level()
@@ -83,7 +75,6 @@ def main():
     transformers.utils.logging.enable_default_handler()
     transformers.utils.logging.enable_explicit_format()
 
-    # Log on each process the small summary:
     logger.warning(
         f"Process rank: {training_args.local_rank}, device: {training_args.device}, n_gpu: {training_args.n_gpu}, "
         + f"distributed training: {training_args.parallel_mode.value == 'distributed'}, 16-bits training: {training_args.fp16}"
@@ -114,6 +105,8 @@ def main():
     trans_task = data_args.trans_task.split(",")
     logger.info(f"Training lanauage pairs: {pairs}\nTraining translation task: {trans_task} Training languages: {languages}")
 
+    # 3. Load pretrained model and tokenizer
+    ## Load config
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,
@@ -125,100 +118,50 @@ def main():
     decoder_config = AutoConfig.from_pretrained(model_args.decoder_model_name_or_path, trust_remote_code=model_args.trust_remote_code)
 
     add_eos_token = True if model_args.model_method == "default" else False
+
+    ## Load tokenizer
     llm_tokenizer = utils.load_tokenizer(data_args, model_args, training_args, logger, add_eos_token=add_eos_token)
     seq2seq_tokenizer = NllbTokenizer.from_pretrained(model_args.decoder_model_name_or_path, trust_remote_code=model_args.trust_remote_code)
 
 
-    if model_args.model_method == "default":
-        model = AutoModelForSeq2SeqLM.from_pretrained(
-            model_args.model_name_or_path,
-            from_tf=bool(".ckpt" in model_args.model_name_or_path),
-            config=config,
-            cache_dir=model_args.cache_dir,
-            revision=model_args.model_revision,
-            token=model_args.token,
-            trust_remote_code=model_args.trust_remote_code,
-        )
-    
-    elif model_args.model_method == "SailorED":
-        # stage 1
-        if model_args.run_mode == "init":
-            if training_args.report_to == "wandb":
-                run = wandb.init(
-                    project='Low-Resource-Machine-Translation',
-                    name='SailorED-pretrain'
-                )
-            # seting decoder config
-            # decoder_config = copy.deepcopy(config.to_dict())
-            # decoder_config["num_hidden_layers"] = model_args.decoder_layer_num
-            # decoder_config["num_encoder_layers"] = config.num_hidden_layers
-            # decoder_config["decoder_param_method"] = model_args.decoder_param_method
-            # decoder_config["model_method"] = model_args.model_method
-            # decoder_config["hidden_size"] = model_args.decoder_hidden_size
-            # decoder_config["intermediate_size"] = model_args.decoder_intermediate_size
-            # decoder_config["num_attention_heads"] = model_args.decoder_num_attention_heads
-            # decoder_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
-            # decoder_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
-            # decoder_config = Qwen2Config(**decoder_config)
-            # config.decoder =  decoder_config
-            decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
-            config.decoder = decoder_config
-            adapter_config = copy.deepcopy(config.to_dict())
-            adapter_config["num_hidden_layers"] = model_args.decoder_layer_num
-            adapter_config["num_encoder_layers"] = config.num_hidden_layers
-            adapter_config["decoder_param_method"] = model_args.decoder_param_method
-            adapter_config["model_method"] = model_args.model_method
-            adapter_config["hidden_size"] = model_args.decoder_hidden_size
-            adapter_config["intermediate_size"] = model_args.decoder_intermediate_size
-            adapter_config["num_attention_heads"] = model_args.decoder_num_attention_heads
-            adapter_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
-            adapter_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
-            adapter_config = Qwen2Config(**adapter_config)
-            config.adapter = adapter_config
-            # set encoder config
-            config.use_cache = False
-            config.is_encoder_decoder = True
-            config.decoder_start_token_id = config.bos_token_id
-            config.encoder_method = model_args.encoder_method
-            config.encoder_layer_num = model_args.encoder_layer_num
-            # make param dict
-            print(type(config))
-            print("Model Init config:", config)
-            state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path, seq2seq_model_name_or_path=model_args.decoder_model_name_or_path)
-            model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
-            model.freeze_llm() # frozen LLM
-        # stage 2
-        else:
-            config.contrastive_lambda = model_args.contrastive_lambda
-            config.contrastive_temperature = model_args.contrastive_temperature
-            if training_args.report_to == "wandb":
-                run = wandb.init(
-                    project='Low-Resource-Machine-Translation',
-                    name='SailorED-sft'
-                )
-            model = QwenCrossAttentionEncDecNLLB.from_pretrained(model_args.model_name_or_path, config=config)
-            config = LoraConfig(
-                r=model_args.lora_r,
-                lora_alpha=model_args.lora_alpha,
-                lora_dropout=0.1,
-                # Regex giải thích:
-                # ^encoder\.layers  -> Bắt đầu chính xác bằng cụm "encoder.layers"
-                # \..* -> Khớp với bất kỳ ký tự nào ở giữa (số layer, tên block self_attn/mlp)
-                # (q_proj|...)$     -> Kết thúc bằng một trong các tên module đích
-                target_modules=r"^encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
-                modules_to_save=["connector", "decoder"],
-                task_type=TaskType.SEQ_2_SEQ_LM  # Hoặc task phù hợp với model Enc-Dec của bạn
+    ## Load model
+    if model_args.model_method == "SailorED":
+        if training_args.report_to == "wandb":
+            run = wandb.init(
+                project='Low-Resource-Machine-Translation',
+                name='SailorED-pretrain'
             )
-
-# Kiểm tra nhanh sau khi get_peft_model
-            model = get_peft_model(model, config)
+        # seting decoder config
+        decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
+        config.decoder = decoder_config
+        adapter_config = copy.deepcopy(config.to_dict())
+        adapter_config["num_hidden_layers"] = model_args.decoder_layer_num
+        adapter_config["num_encoder_layers"] = config.num_hidden_layers
+        adapter_config["decoder_param_method"] = model_args.decoder_param_method
+        adapter_config["model_method"] = model_args.model_method
+        adapter_config["hidden_size"] = model_args.decoder_hidden_size
+        adapter_config["intermediate_size"] = model_args.decoder_intermediate_size
+        adapter_config["num_attention_heads"] = model_args.decoder_num_attention_heads
+        adapter_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
+        adapter_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
+        adapter_config = Qwen2Config(**adapter_config)
+        config.adapter = adapter_config
+        # set encoder config
+        config.use_cache = False
+        config.is_encoder_decoder = True
+        config.decoder_start_token_id = config.bos_token_id
+        config.encoder_method = model_args.encoder_method
+        config.encoder_layer_num = model_args.encoder_layer_num
+        # make param dict
+        print(type(config))
+        print("Model Init config:", config)
+        state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path, seq2seq_model_name_or_path=model_args.decoder_model_name_or_path)
+        model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
+        model.freeze_llm() 
     else:
         print("Not implement this model yet!")
         exit()
     
-    # model.generation_config = GenerationConfig.from_pretrained(
-    #     model_args.model_name_or_path,
-    # )
 
     model = utils.set_model_special_tokens(model, model_args.model_name_or_path)
     print(model.generation_config)
@@ -247,7 +190,7 @@ def main():
         
         try:
             # Lấy 1 mẫu đầu tiên từ tập train
-            sample = test_datasets[0]
+            sample = train_datasets[0]
             
             # 1. Kiểm tra các Keys (Quan trọng nhất)
             print(f"👉 Các keys có trong dataset: {list(sample.keys())}")
@@ -352,7 +295,6 @@ def main():
             cur_test_dataset = test_datasets[lg_pair]
             src_lang, tgt_lang = lg_pair.split("-")
             for task in cur_test_dataset.keys():
-                print(f"\n\n{'='*30}\nPredicting for language pair: {lg_pair}, task: {task}\n{'='*30}")
                 if task not in predict_tasks:
                     logger.info(f"skip predict {lg_pair}.{task}")
                     continue

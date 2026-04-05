@@ -274,12 +274,17 @@ class QwenForEncDec(QwenPreTrainedModel):
 
         # 1. Check whether the user has defined `decoder_input_ids` manually. To facilitate in terms of input naming,
         # we also allow the user to pass it under `input_ids`, if the encoder does not use it as the main input.
-        if model_kwargs is not None and "decoder_input_ids" in model_kwargs:
+        print(f"model_kwargs keys: {model_kwargs.keys()}")
+        if model_kwargs is not None and "decoder_input_ids" in model_kwargs.keys():
+            print("Getting decoder_input_ids from model_kwargs['decoder_input_ids']")
             decoder_input_ids = model_kwargs.pop("decoder_input_ids")
+            return decoder_input_ids, model_kwargs
         elif "input_ids" in model_kwargs and model_input_name != "input_ids":
             decoder_input_ids = model_kwargs.pop("input_ids")
         else:
             decoder_input_ids = None
+        
+
 
         # 2. Encoder-decoder models expect the `decoder_input_ids` to start with a special token. Let's ensure that.
         # decoder_start_token_id = self._get_decoder_start_token_id(decoder_start_token_id, bos_token_id)
@@ -527,7 +532,7 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         self.lm_head = self.decoder.lm_head
 
     def get_input_embeddings(self):
-        return self.decoder.embed_tokens
+        return self.decoder.decoder.embed_tokens
 
     def set_input_embeddings(self, value):
         self.encoder.embed_tokens = value
@@ -563,6 +568,55 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
 
         contrastive_loss_j = -nn.LogSoftmax(dim=1)(torch.div(anchor_dot_contrast, self.contrastive_temperature)).diag().sum() # (batch_size,)
         return (contrastive_loss_i + contrastive_loss_j) / 2.0 / npairs
+    
+    def compute_ot_loss(
+        self,
+        hidden_states_a: torch.Tensor,
+        mask_a: torch.Tensor,
+        hidden_states_b: torch.Tensor,
+        mask_b: torch.Tensor,
+        reg: float = 0.1, num_iters: int = 50,
+        eps: float = 1e-8
+    ) -> torch.Tensor:
+        """
+        Compute the optimal transport loss between two sets of hidden states.
+
+        Parameters:
+            hidden_states_a (torch.Tensor): Hidden states from the encoder (batch_size, seq_len_a, hidden_size).
+            mask_a (torch.Tensor): Attention mask for the encoder hidden states (batch_size, seq_len_a).
+            hidden_states_b (torch.Tensor): Hidden states from the decoder (batch_size, seq_len_b, hidden_size).
+            mask_b (torch.Tensor): Attention mask for the decoder hidden states (batch_size, seq_len_b).
+            reg (float): Regularization strength for Sinkhorn iterations.
+            num_iters (int): Number of iterations for Sinkhorn algorithm.
+        
+        Returns:
+            Tensor representing the optimal transport loss.
+        """
+        batch_size = hidden_states_a.size(0)
+        batch_costs = []
+        
+        for i in range(batch_size):
+            hidden_a = hidden_states_a[i][mask_a[i] == 1]
+            hidden_b = hidden_states_b[i][mask_b[i] == 1]
+
+            N = hidden_a.size(0)
+            M = hidden_b.size(0)
+            a = torch.ones(N, dtype=hidden_a.dtype, device=hidden_a.device) / N
+            b = torch.ones(M, dtype=hidden_b.dtype, device=hidden_b.device) / M
+
+            cost_matrix = torch.cdist(hidden_a, hidden_b, p=2)
+            K = torch.exp(-cost_matrix / reg)
+            u = torch.ones_like(a)
+            for _ in range(num_iters):
+                v = b / (torch.matmul(K.t(), u) + eps)
+                u = a / (torch.matmul(K, v) + eps)
+
+            transport_plan = torch.matmul(u.unsqueeze(1), torch.matmul(K, v.unsqueeze(0)))
+            cost = torch.sum(transport_plan * cost_matrix)
+            batch_costs.append(cost)
+        return (batch_costs, torch.stack(batch_costs).mean())
+            
+
 
     def forward(
         self,
@@ -640,6 +694,7 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         ## compute loss 
         pretraining_tp = getattr(self.config, "pretraining_tp", 1)
         if pretraining_tp is not None and pretraining_tp > 1:
+            print(f"Using pretraining_tp={pretraining_tp} for parallel LM head computation!")
             lm_head_slices = self.lm_head.weight.split(self.vocab_size // pretraining_tp, dim=0)
             logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(pretraining_tp)]
             logits = torch.cat(logits, dim=-1)
@@ -649,6 +704,7 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         
         loss = None
         if labels is not None:
+            # print(f"labels shape: {labels.shape}, logits shape: {logits.shape}")
             loss_fct = CrossEntropyLoss()
             labels = labels.to(logits.device)
             lm_loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
@@ -667,15 +723,60 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         return Seq2SeqLMOutput(
             loss=loss,
             logits=logits,
-            # past_key_values=decoder_outputs.past_key_value,
-            # decoder_hidden_states=decoder_outputs.hidden_states,
-            # decoder_attentions=decoder_outputs.attentions,
-            decoder_hidden_states=decoder_outputs,
+            past_key_values=decoder_outputs.past_key_values,
+            decoder_hidden_states=decoder_outputs.hidden_states,
+            decoder_attentions=decoder_outputs.attentions,
+            # decoder_hidden_states=decoder_outputs,
             cross_attentions=None,
             encoder_last_hidden_state=encoder_outputs.last_hidden_state,
             encoder_hidden_states=encoder_outputs.hidden_states,
             encoder_attentions=encoder_outputs.attentions,
         )
+    
+    def _prepare_encoder_decoder_kwargs_for_generation(
+        self, 
+        inputs_tensor: torch.Tensor, 
+        model_kwargs, 
+        model_input_name: Optional[str] = None,
+        *args,
+        **kwargs
+    ) -> Dict[str, Any]:
+        ### default will not reture encoder's all hidden states, so we overwrite it.
+
+        # 1. get encoder
+        encoder = self.get_encoder()
+        # Compatibility with Accelerate big model inference: we need the encoder to outputs stuff on the same device
+        # as the inputs.
+        if hasattr(self, "hf_device_map"):
+            if hasattr(encoder, "_hf_hook"):
+                encoder._hf_hook.io_same_device = True
+            else:
+                add_hook_to_module(encoder, AlignDevicesHook(io_same_device=True))
+
+        # 2. Prepare encoder args and encoder kwargs from model kwargs.
+        irrelevant_prefix = ["decoder_", "cross_attn", "use_cache"]
+        encoder_kwargs = {
+            argument: value
+            for argument, value in model_kwargs.items()
+            if not any(argument.startswith(p) for p in irrelevant_prefix)
+        }
+        encoder_signature = set(inspect.signature(encoder.forward).parameters)
+        encoder_accepts_wildcard = "kwargs" in encoder_signature or "model_kwargs" in encoder_signature
+        if not encoder_accepts_wildcard:
+            encoder_kwargs = {
+                argument: value for argument, value in encoder_kwargs.items() if argument in encoder_signature
+            }
+
+        # 3. make sure that encoder returns `ModelOutput`
+        model_input_name = model_input_name if model_input_name is not None else self.main_input_name
+        encoder_kwargs["return_dict"] = True
+        encoder_kwargs[model_input_name] = inputs_tensor
+        ## new
+        encoder_kwargs["use_cache"] = False
+        encoder_kwargs["output_hidden_states"] = True
+        model_kwargs["encoder_outputs"]: ModelOutput = encoder(**encoder_kwargs)
+
+        return model_kwargs
 
     def _prepare_decoder_input_ids_for_generation(
         self,
@@ -693,10 +794,18 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
 
         # 1. Check whether the user has defined `decoder_input_ids` manually. To facilitate in terms of input naming,
         # we also allow the user to pass it under `input_ids`, if the encoder does not use it as the main input.
+        # print(f"model_kwargs keys: {model_kwargs.keys()}")
         if model_kwargs is not None and "decoder_input_ids" in model_kwargs:
+            # print("Getting decoder_input_ids from model_kwargs['decoder_input_ids']")
+            # print(f"decoder_input_ids shape: {model_kwargs['decoder_input_ids'].shape}")
             decoder_input_ids = model_kwargs.pop("decoder_input_ids")
+            if model_kwargs.get("decoder_attention_mask") is None:
+                model_kwargs["decoder_attention_mask"] = torch.ones_like(decoder_input_ids)
+            return decoder_input_ids, model_kwargs
         elif "input_ids" in model_kwargs and model_input_name != "input_ids":
             decoder_input_ids = model_kwargs.pop("input_ids")
+            if model_kwargs.get("decoder_attention_mask") is None:
+                model_kwargs["decoder_attention_mask"] = torch.ones_like(decoder_input_ids)
         else:
             decoder_input_ids = None
 
@@ -844,6 +953,19 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
             if torch.cuda.current_device() == 0 and is_freeze:
                 print(f"freeze ==> {name}")
         print_train_module(self)
+    
+    def freeze_decoder(self):
+        for name, param in self.named_parameters():
+            is_freeze = False
+
+            ## freeze the whole decoder
+            if name.startswith("decoder."):
+                param.requires_grad = False
+                is_freeze = True
+            if torch.cuda.current_device() == 0 and is_freeze:
+                print(f"freeze ==> {name}")
+        print_train_module(self)
+
 
     def prepare_inputs_for_generation(
         self, 
@@ -892,6 +1014,7 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
 
         # first inference step: src + tgt length
         # subsequent inference step: new generated tokens length, default is 1
+        # print(f"position_ids shape: {position_ids}, input_ids shape: {input_ids.shape}")
         input_length = position_ids.shape[-1]
             
         ## overwrite the default updata

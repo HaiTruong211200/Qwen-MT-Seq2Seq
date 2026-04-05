@@ -68,7 +68,7 @@ def check_weight(model):
 
     print("--- KIỂM TRA TRỌNG SỐ DECODER ---")
     decoder = model.get_decoder()
-    for idx, layer in enumerate(decoder.layers):
+    for idx, layer in enumerate(decoder.decoder.layers):
         print(f"Layer {idx}")
     #     print(
     #         f"Shape: {layer.input_layernorm.weight.shape}"

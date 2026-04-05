@@ -183,10 +183,12 @@ class DataCollatorForQwenNLLB:
 
         ## for predict only
         if labels is None:
+            # print(features[0].keys())
+            decoder_input_ids = [f["decoder_input_ids"] for f in features]
             features = {
                 "input_ids": torch.tensor(np.array(input_ids).astype(np.int64)),
                 "attention_mask": torch.tensor(np.array(attention_mask).astype(np.int64)),
-                "decoder_input_ids": torch.tensor(np.array(features["force_decoder_input_ids"]).astype(np.int64)),
+                "decoder_input_ids": torch.tensor(np.array(decoder_input_ids).astype(np.int64)),
             }
             return features
         

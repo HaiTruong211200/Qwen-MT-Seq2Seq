@@ -917,6 +917,7 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
             truncation=True,
             return_attention_mask=True,
         )
+        model_inputs = dict(model_inputs)
 
         # =========================
         # 2. TOKENIZE TARGET (for evaluation only)
@@ -933,13 +934,19 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
         # # =========================
         # # 3. FORCE TARGET LANGUAGE (QUAN TRỌNG)
         # # =========================
-        forced_bos_token_ids = [
-            seq2seq_tokenizer.convert_tokens_to_ids(TOKENIZER_LANG_TABLE[lang])
-            for lang in tgt_langs
-        ]
+        forced_bos_token_ids = []
+        for lang in tgt_langs:
+            bos_token_id = seq2seq_tokenizer.convert_tokens_to_ids(TOKENIZER_LANG_TABLE[lang])
+            forced_bos_token_ids.append([bos_token_id])
+        # forced_bos_token_ids = [
+        #     seq2seq_tokenizer.convert_tokens_to_ids(TOKENIZER_LANG_TABLE[lang])
+        #     for lang in tgt_langs
+        # ]
 
         # model_inputs["labels"] = labels["input_ids"]  # dùng để tính metric
-        model_inputs["forced_bos_token_id"] = forced_bos_token_ids
+        model_inputs["decoder_input_ids"] = forced_bos_token_ids
+        # print(f"Forced BOS token ids for evaluation: {forced_bos_token_ids}")
+        # print(f"model_inputs[\"forced_bos_token_id\"]: {model_inputs['forced_bos_token_id']}")
 
         return model_inputs
 
@@ -1005,6 +1012,7 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
                         load_from_cache_file=not data_args.overwrite_cache,
                         desc="Running tokenizer test dataset",
                     )
+                    print(f"test_dataset[0]: {test_dataset[0]}")
                 test_datasets[lg_pair][task] = test_dataset
     
     return train_datasets, eval_datasets, test_datasets

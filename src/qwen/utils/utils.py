@@ -93,7 +93,7 @@ def make_model_state_dict(model_path, seq2seq_model_name_or_path):
 
     for key, value in seq2seq_state.items():
         if key.startswith("model.decoder"):
-            new_key = "decoder" + key[13:]
+            new_key = "decoder.decoder" + key[13:]
             new_state[new_key] = value
         elif key.startswith("model.lm_head"):
             new_key = "lm_head" + key[13:]

@@ -42,7 +42,7 @@ def manual_fix_connector_weights(model, target_dim=512):
                 if module.padding_idx is not None:
                     module.weight[module.padding_idx].fill_(0.0)
             count_fixed += 1
-    model.lm_head = model.get_decoder().lm_head
+    # model.lm_head = model.get_decoder().lm_head
     # decoder_layers = model.get_decoder().layers
     # for name, module in decoder_layers.named_modules():
     
