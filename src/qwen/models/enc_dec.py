@@ -249,6 +249,16 @@ class QwenForEncDec(QwenPreTrainedModel):
         encoder_all_hidden_states = encoder_outputs.hidden_states
         # encoder_last_hidden_state = encoder_outputs.last_hidden_state
 
+        dec_hidden_states = self.encoder(
+            input_ids=decoder_input_ids,
+            attention_mask=decoder_attention_mask,
+            inputs_embeds=decoder_inputs_embeds,
+            use_cache=False,
+            output_attentions=False,
+            output_hidden_states=True,
+            return_dict=True,
+        ).hidden_states[-1]
+
         decoder_outputs = self.decoder(
             decoder_input_ids,
             attention_mask=decoder_attention_mask,
@@ -282,14 +292,23 @@ class QwenForEncDec(QwenPreTrainedModel):
             lm_loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
             loss = lm_loss
             if self.contrastive_lambda > 0:
-                contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], hidden_states)
-                # contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], dec_hidden_states)
+                # contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], hidden_states)
+                contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], dec_hidden_states)
                 loss = lm_loss + self.contrastive_lambda * contrastive_loss
             if self.ot_lambda > 0:
+                # ot_loss = self.compute_ot_loss_cosine(
+                #     encoder_hidden_states=encoder_all_hidden_states[-1],
+                #     mask_a=attention_mask,
+                #     hidden_states_b=hidden_states,
+                #     mask_b=decoder_attention_mask,
+                #     reg=self.ot_reg,
+                #     num_iters=self.ot_num_iters,
+                #     eps=self.ot_eps
+                # )
                 ot_loss = self.compute_ot_loss_cosine(
-                    encoder_hidden_states=encoder_all_hidden_states[-1],
+                    hidden_states_a=encoder_all_hidden_states[-1],
                     mask_a=attention_mask,
-                    hidden_states_b=hidden_states,
+                    hidden_states_b=dec_hidden_states,
                     mask_b=decoder_attention_mask,
                     reg=self.ot_reg,
                     num_iters=self.ot_num_iters,
