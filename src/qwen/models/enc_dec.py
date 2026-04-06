@@ -51,7 +51,7 @@ class QwenForEncDec(QwenPreTrainedModel):
         ## decoder
         # decoder_config = PretrainedConfig.from_dict(config.decoder) if getattr(config, "decoder", None) is not None else config
         decoder_config = PretrainedConfig.from_dict(config.decoder.to_dict()) if getattr(config, "decoder", None) is not None else config
-        if decoder_config.model_method == "lamate":
+        if decoder_config.model_method in ["lamate", "SailorED"]:
             self.decoder = QwenCrossAttDecoder(decoder_config)
             self.lm_head = nn.Linear(decoder_config.hidden_size, config.vocab_size, bias=False)
         else:

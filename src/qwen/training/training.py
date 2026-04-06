@@ -131,6 +131,7 @@ def main():
         )
     
     elif model_args.model_method == "SailorED":
+        print(">>> Running SailorED model")
         # stage 1
         if model_args.run_mode == "init":
             if training_args.report_to == "wandb":
@@ -189,6 +190,7 @@ def main():
 # Kiểm tra nhanh sau khi get_peft_model
             model = get_peft_model(model, config)
     else:
+        print(">>> Running other model")
         print("Not implement this model yet!")
         exit()
     
