@@ -27,16 +27,17 @@ decoder_intermediate_size=2460
 decoder_num_attention_heads=8
 decoder_num_key_value_heads=8
 decoder_param_method="freeze"
-tag=lamate_s1
+tag=SailorNLLB_stage1
 decoder_model_name_or_path="facebook/nllb-200-distilled-600M"
 contrastive_lambda=0
+ot_lambda=0
 
 ## data
 language_pairs=vi-km,vi-lo
 languages=vi,lo,km
 mmt_data_path=$ROOT_DIR/data
 trans_task="general_trans"
-epoch=2
+epoch=1
 batch_size=2
 gradient_accumulation=2
 

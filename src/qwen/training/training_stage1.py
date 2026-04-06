@@ -1,9 +1,6 @@
 import logging
 import os
 import sys
-import warnings
-from dataclasses import dataclass, field
-from typing import Optional
 import torch
 import time
 
@@ -21,7 +18,6 @@ from qwen.process_data.process_data import (
     process_mmt_data_for_seq2seq_ver2,
 )
 import re
-from peft import LoraConfig, TaskType, get_peft_model
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 
 import transformers
@@ -35,12 +31,11 @@ from transformers import (
     default_data_collator,
     set_seed,
     EarlyStoppingCallback,
-    GenerationConfig,
     NllbTokenizer
 )
 from transformers.trainer_utils import get_last_checkpoint
 
-from qwen.models.enc_dec import QwenCrossAttentionEncDec, QwenCrossAttentionEncDecNLLB
+from qwen.models.enc_dec import QwenCrossAttentionEncDecNLLB
 from qwen.config.args import DataTrainingArguments, ModelArguments
 
 from qwen.utils.check_weight import check_weight
@@ -157,7 +152,9 @@ def main():
         print("Model Init config:", config)
         state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path, seq2seq_model_name_or_path=model_args.decoder_model_name_or_path)
         model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
-        model.freeze_llm() 
+        model.freeze_llm()
+        if model_args.run_mode == "stage1":
+            model.freeze_decoder()
     else:
         print("Not implement this model yet!")
         exit()
@@ -177,46 +174,43 @@ def main():
     ## Preprocessing data
     ## Tokenize dataset
     if data_args.mmt_data_path is not None:
-        # if model_args.run_mode == "init" or model_args.run_mode == "continue-pretrain":
-        #     train_raw_data, valid_raw_data, test_raw_data = load_data_pretrain(languages, data_args, model_args, training_args,logger)
-        #     train_datasets, eval_datasets, test_datasets = process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, languages, tokenizer, data_args, training_args)
-        # elif model_args.run_mode == "sft":
-        train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
-        print(train_raw_data.keys())
-        train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_data, pairs, llm_tokenizer, seq2seq_tokenizer, data_args, training_args)
+        if model_args.run_mode == "stage1" or model_args.run_mode == "stage2":
+            train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
+            train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_data, pairs, llm_tokenizer, seq2seq_tokenizer, data_args, training_args)
+            
 
         # print("\n" + "!"*40)
         # print(">>> DEBUG: KIỂM TRA MẪU DATASET SAU KHI PROCESS")
         
-        try:
-            # Lấy 1 mẫu đầu tiên từ tập train
-            sample = train_datasets[0]
+        # try:
+        #     # Lấy 1 mẫu đầu tiên từ tập train
+        #     sample = train_datasets[0]
             
-            # 1. Kiểm tra các Keys (Quan trọng nhất)
-            print(f"👉 Các keys có trong dataset: {list(sample.keys())}")
+        #     # 1. Kiểm tra các Keys (Quan trọng nhất)
+        #     print(f"👉 Các keys có trong dataset: {list(sample.keys())}")
             
-            # 2. Check xem có 'labels' không?
-            if "labels" not in sample:
-                print("❌ LỖI NGHIÊM TRỌNG: Không thấy cột 'labels'. Collator sẽ không tạo decoder_input_ids!")
-                # Thử đoán xem nó đang tên là gì
-                print(f"   (Có thể nó đang tên là 'target', 'translation' hoặc 'output'?)")
-            else:
-                print("✅ Đã tìm thấy cột 'labels'.")
+        #     # 2. Check xem có 'labels' không?
+        #     if "labels" not in sample:
+        #         print("❌ LỖI NGHIÊM TRỌNG: Không thấy cột 'labels'. Collator sẽ không tạo decoder_input_ids!")
+        #         # Thử đoán xem nó đang tên là gì
+        #         print(f"   (Có thể nó đang tên là 'target', 'translation' hoặc 'output'?)")
+        #     else:
+        #         print("✅ Đã tìm thấy cột 'labels'.")
 
-            # 3. In thử nội dung
-            print("-" * 30)
-            print(f"Input IDs (len={len(sample['input_ids'])}): {sample['input_ids'][:10]} ...")
-            print(f"Input Text:  {llm_tokenizer.decode(sample['input_ids'], skip_special_tokens=True)}")
+        #     # 3. In thử nội dung
+        #     print("-" * 30)
+        #     print(f"Input IDs (len={len(sample['input_ids'])}): {sample['input_ids'][:10]} ...")
+        #     print(f"Input Text:  {llm_tokenizer.decode(sample['input_ids'], skip_special_tokens=True)}")
             
-            if "labels" in sample:
-                print("-" * 30)
-                print(f"Labels IDs (len={len(sample['labels'])}): {sample['labels'][:10]} ...")
-                print(f"Labels Text: {seq2seq_tokenizer.decode(sample['labels'], skip_special_tokens=True)}")
+        #     if "labels" in sample:
+        #         print("-" * 30)
+        #         print(f"Labels IDs (len={len(sample['labels'])}): {sample['labels'][:10]} ...")
+        #         print(f"Labels Text: {seq2seq_tokenizer.decode(sample['labels'], skip_special_tokens=True)}")
             
-        except Exception as e:
-            print(f"❌ Không thể in mẫu dataset: {e}")
+        # except Exception as e:
+        #     print(f"❌ Không thể in mẫu dataset: {e}")
             
-        print("!"*40 + "\n")
+        # print("!"*40 + "\n")
     ## Data collator
     label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else llm_tokenizer.pad_token_id
     if data_args.pad_to_max_length:
@@ -243,7 +237,7 @@ def main():
 
     optimizer = None
 
-    if model_args.run_mode == "init":
+    if model_args.run_mode == "stage1":
         manual_fix_connector_weights(model, target_dim=model.config.decoder.hidden_size)
     check_weight(model)
 
@@ -286,6 +280,7 @@ def main():
     if training_args.report_to == "wandb":
         wandb.finish()
 
+    # Evaluation
     num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
     
     predict_tasks = data_args.predict_task.split(",")
