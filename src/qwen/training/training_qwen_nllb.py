@@ -114,6 +114,10 @@ def main():
     trans_task = data_args.trans_task.split(",")
     logger.info(f"Training lanauage pairs: {pairs}\nTraining translation task: {trans_task} Training languages: {languages}")
 
+    ot_lambda = model_args.ot_lambda
+    contrastive_lambda = model_args.contrastive_lambda
+    logger.info(f"OT loss lambda: {ot_lambda}, contrastive loss lambda: {contrastive_lambda}")
+
     config = AutoConfig.from_pretrained(
         model_args.config_name if model_args.config_name else model_args.model_name_or_path,
         cache_dir=model_args.cache_dir,

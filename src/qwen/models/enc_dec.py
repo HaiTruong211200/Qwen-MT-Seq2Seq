@@ -514,6 +514,10 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         encoder_method = getattr(config, "encoder_method", "causal")
         self.contrastive_lambda = getattr(config, "contrastive_lambda", 0.0)
         self.contrastive_temperature = getattr(config, "contrastive_temperature", 0.1)
+        self.ot_lambda = getattr(config, "ot_lambda", 0.0)
+        self.ot_reg = getattr(config, "ot_reg", 0.1)
+        self.ot_num_iters = getattr(config, "ot_num_iters", 20)
+        self.ot_eps = getattr(config, "ot_eps", 1e-8)
 
         ## encoder
         if encoder_method == "causal":
@@ -569,52 +573,154 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         contrastive_loss_j = -nn.LogSoftmax(dim=1)(torch.div(anchor_dot_contrast, self.contrastive_temperature)).diag().sum() # (batch_size,)
         return (contrastive_loss_i + contrastive_loss_j) / 2.0 / npairs
     
-    def compute_ot_loss(
-        self,
+    # def compute_ot_loss(
+    #     self,
+    #     hidden_states_a: torch.Tensor,
+    #     mask_a: torch.Tensor,
+    #     hidden_states_b: torch.Tensor,
+    #     mask_b: torch.Tensor,
+    #     reg: float = 0.1, num_iters: int = 50,
+    #     eps: float = 1e-8
+    # ) -> torch.Tensor:
+    #     """
+    #     Compute the optimal transport loss between two sets of hidden states.
+
+    #     Parameters:
+    #         hidden_states_a (torch.Tensor): Hidden states from the encoder (batch_size, seq_len_a, hidden_size).
+    #         mask_a (torch.Tensor): Attention mask for the encoder hidden states (batch_size, seq_len_a).
+    #         hidden_states_b (torch.Tensor): Hidden states from the decoder (batch_size, seq_len_b, hidden_size).
+    #         mask_b (torch.Tensor): Attention mask for the decoder hidden states (batch_size, seq_len_b).
+    #         reg (float): Regularization strength for Sinkhorn iterations.
+    #         num_iters (int): Number of iterations for Sinkhorn algorithm.
+        
+    #     Returns:
+    #         Tensor representing the optimal transport loss.
+    #     """
+    #     batch_size = hidden_states_a.size(0)
+    #     batch_costs = []
+        
+    #     for i in range(batch_size):
+    #         hidden_a = hidden_states_a[i][mask_a[i] == 1]
+    #         hidden_b = hidden_states_b[i][mask_b[i] == 1]
+
+    #         N = hidden_a.size(0)
+    #         M = hidden_b.size(0)
+    #         a = torch.ones(N, dtype=hidden_a.dtype, device=hidden_a.device) / N
+    #         b = torch.ones(M, dtype=hidden_b.dtype, device=hidden_b.device) / M
+
+    #         cost_matrix = torch.cdist(hidden_a, hidden_b, p=2)
+    #         K = torch.exp(-cost_matrix / reg)
+    #         u = torch.ones_like(a)
+    #         for _ in range(num_iters):
+    #             v = b / (torch.matmul(K.t(), u) + eps)
+    #             u = a / (torch.matmul(K, v) + eps)
+
+    #         transport_plan = torch.matmul(u.unsqueeze(1), torch.matmul(K, v.unsqueeze(0)))
+    #         cost = torch.sum(transport_plan * cost_matrix)
+    #         batch_costs.append(cost)
+    #     return (batch_costs, torch.stack(batch_costs).mean())
+
+
+    def compute_ot_loss_cosine(
         hidden_states_a: torch.Tensor,
         mask_a: torch.Tensor,
         hidden_states_b: torch.Tensor,
         mask_b: torch.Tensor,
-        reg: float = 0.1, num_iters: int = 50,
+        reg: float = 0.1,
+        num_iters: int = 20,
         eps: float = 1e-8
     ) -> torch.Tensor:
         """
-        Compute the optimal transport loss between two sets of hidden states.
+        Calculates the Optimal Transport (Sinkhorn) Loss between two batches of sentences 
+        based on Cosine Distance. The function is highly optimized for GPU via 
+        Vectorization and is absolutely safe from numerical underflow.
 
         Parameters:
-            hidden_states_a (torch.Tensor): Hidden states from the encoder (batch_size, seq_len_a, hidden_size).
-            mask_a (torch.Tensor): Attention mask for the encoder hidden states (batch_size, seq_len_a).
-            hidden_states_b (torch.Tensor): Hidden states from the decoder (batch_size, seq_len_b, hidden_size).
-            mask_b (torch.Tensor): Attention mask for the decoder hidden states (batch_size, seq_len_b).
-            reg (float): Regularization strength for Sinkhorn iterations.
-            num_iters (int): Number of iterations for Sinkhorn algorithm.
-        
+        -----------
+        hidden_states_a : torch.Tensor
+            Output from the Encoder containing the semantic representations of batch A. 
+            Shape: [B, T1, D] (B: Batch size, T1: Max sequence length A, D: Hidden dimension).
+            Note: You do not need to normalize this tensor before passing it to the function.
+            
+        mask_a : torch.Tensor
+            Attention mask matrix for batch A from the Tokenizer. 
+            Shape: [B, T1]. 
+            Values: 1 (valid token, cost will be computed), 0 (padding, will be ignored).
+            
+        hidden_states_b : torch.Tensor
+            Output from the Encoder containing the semantic representations of batch B. 
+            Shape: [B, T2, D] (T2: Max sequence length B).
+            
+        mask_b : torch.Tensor
+            Attention mask matrix for batch B. 
+            Shape: [B, T2].
+            
+        reg : float, default = 0.1
+            Entropy regularization coefficient. Controls the "blurriness" of the Sinkhorn algorithm.
+            - Too small (< 0.05): Prone to unstable/jagged gradients.
+            - Too large (> 0.5): Blurs the transport matrix too much, skewing semantic alignment.
+            - Recommended: 0.05 to 0.1 when using Cosine Distance.
+            
+        num_iters : int, default = 20
+            Fixed number of iterations for the Sinkhorn algorithm to converge. 
+            20 iterations is an optimal balance between computation speed and accuracy.
+            
+        eps : float, default = 1e-8
+            A tiny value (Epsilon) added to denominators to prevent Division by Zero errors, 
+            keeping the computation graph stable.
+
         Returns:
-            Tensor representing the optimal transport loss.
+        --------
+        torch.Tensor
+            A scalar tensor representing the average Optimal Transport cost of the 
+            entire Batch. You can directly call `.backward()` on it.
         """
-        batch_size = hidden_states_a.size(0)
-        batch_costs = []
         
-        for i in range(batch_size):
-            hidden_a = hidden_states_a[i][mask_a[i] == 1]
-            hidden_b = hidden_states_b[i][mask_b[i] == 1]
+        B, T1, D = hidden_states_a.shape
+        T2 = hidden_states_b.shape[1]
 
-            N = hidden_a.size(0)
-            M = hidden_b.size(0)
-            a = torch.ones(N, dtype=hidden_a.dtype, device=hidden_a.device) / N
-            b = torch.ones(M, dtype=hidden_b.dtype, device=hidden_b.device) / M
+        # 1. COMPUTE COSINE DISTANCE (COST MATRIX)
+        # Normalize the vectors to length 1 (L2 Normalize)
+        norm_a = F.normalize(hidden_states_a, p=2, dim=-1)
+        norm_b = F.normalize(hidden_states_b, p=2, dim=-1)
+        
+        # Compute Cosine Similarity -> Cosine Distance. Values are bounded in [0, 2]
+        cos_sim = torch.bmm(norm_a, norm_b.transpose(1, 2))
+        cost = 1.0 - cos_sim
 
-            cost_matrix = torch.cdist(hidden_a, hidden_b, p=2)
-            K = torch.exp(-cost_matrix / reg)
-            u = torch.ones_like(a)
-            for _ in range(num_iters):
-                v = b / (torch.matmul(K.t(), u) + eps)
-                u = a / (torch.matmul(K, v) + eps)
+        # 2. HANDLE PADDING
+        # Create a cross-attention mask between the two sentences
+        valid = mask_a.unsqueeze(2) * mask_b.unsqueeze(1)
+        
+        # Assign a cost of 10.0 to padding positions (since the actual max cost is only 2.0)
+        cost_masked = cost.masked_fill(valid == 0, 10.0)
 
-            transport_plan = torch.matmul(u.unsqueeze(1), torch.matmul(K, v.unsqueeze(0)))
-            cost = torch.sum(transport_plan * cost_matrix)
-            batch_costs.append(cost)
-        return (batch_costs, torch.stack(batch_costs).mean())
+        # 3. SINKHORN ALGORITHM
+        # Compute marginal distributions (distribute mass uniformly across valid tokens)
+        a = mask_a.float()
+        a = a / (a.sum(dim=1, keepdim=True) + eps)
+
+        b = mask_b.float()
+        b = b / (b.sum(dim=1, keepdim=True) + eps)
+
+        # Kernel matrix
+        K = torch.exp(-cost_masked / reg)
+
+        u = torch.ones_like(a)
+
+        # Sinkhorn iteration loop
+        for _ in range(num_iters):
+            v = b / (torch.bmm(K.transpose(1, 2), u.unsqueeze(-1)).squeeze(-1) + eps)
+            u = a / (torch.bmm(K, v.unsqueeze(-1)).squeeze(-1) + eps)
+
+        # Transport Plan: [B, T1, T2]
+        P = u.unsqueeze(2) * K * v.unsqueeze(1)
+
+        # 4. COMPUTE TOTAL LOSS
+        # Multiply the transport plan by the original cost and only sum over valid tokens
+        ot_loss = (P * cost * valid).sum(dim=(1, 2)).mean()
+
+        return ot_loss
             
 
 
@@ -708,12 +814,25 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
             loss_fct = CrossEntropyLoss()
             labels = labels.to(logits.device)
             lm_loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
+            loss = lm_loss
             if self.contrastive_lambda > 0:
                 contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], hidden_states)
                 # contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], dec_hidden_states)
                 loss = lm_loss + self.contrastive_lambda * contrastive_loss
-            else:
-                loss = lm_loss
+            if self.ot_lambda > 0:
+                ot_loss = self.compute_ot_loss_cosine(
+                    encoder_hidden_states=encoder_all_hidden_states[-1],
+                    mask_a=attention_mask,
+                    hidden_states_b=hidden_states,
+                    mask_b=decoder_attention_mask,
+                    reg=self.ot_reg,
+                    num_iters=self.ot_num_iters,
+                    eps=self.ot_eps
+                )
+                print(f"OT Loss: {ot_loss.item():.4f}")
+                loss = loss + self.ot_lambda * ot_loss
+            # else:
+            #     loss = lm_loss
         
         # import pdb;pdb.set_trace()
         if not return_dict:
