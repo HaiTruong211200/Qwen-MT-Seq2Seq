@@ -18,6 +18,7 @@ from qwen.process_data.process_data import (
     process_mmt_data_for_seq2seq_ver2,
 )
 import re
+from peft import LoraConfig, TaskType, get_peft_model
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 
 import transformers
@@ -127,34 +128,33 @@ def main():
                 name='SailorED-pretrain'
             )
         # seting decoder config
-        decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
-        config.decoder = decoder_config
-        adapter_config = copy.deepcopy(config.to_dict())
-        adapter_config["num_hidden_layers"] = model_args.decoder_layer_num
-        adapter_config["num_encoder_layers"] = config.num_hidden_layers
-        adapter_config["decoder_param_method"] = model_args.decoder_param_method
-        adapter_config["model_method"] = model_args.model_method
-        adapter_config["hidden_size"] = model_args.decoder_hidden_size
-        adapter_config["intermediate_size"] = model_args.decoder_intermediate_size
-        adapter_config["num_attention_heads"] = model_args.decoder_num_attention_heads
-        adapter_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
-        adapter_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
-        adapter_config = Qwen2Config(**adapter_config)
-        config.adapter = adapter_config
-        # set encoder config
-        config.use_cache = False
-        config.is_encoder_decoder = True
-        config.decoder_start_token_id = config.bos_token_id
-        config.encoder_method = model_args.encoder_method
-        config.encoder_layer_num = model_args.encoder_layer_num
-        # make param dict
-        print(type(config))
-        print("Model Init config:", config)
-        state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path, seq2seq_model_name_or_path=model_args.decoder_model_name_or_path)
-        model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
-        model.freeze_llm()
-        # if model_args.run_mode == "stage1":
-        # model.freeze_decoder()
+        config.contrastive_lambda = model_args.contrastive_lambda
+        config.contrastive_temperature = model_args.contrastive_temperature
+        config.ot_lambda = model_args.ot_lambda
+        config.ot_reg = model_args.ot_reg
+        config.ot_num_iters = model_args.ot_num_iters
+        config.ot_eps = model_args.ot_eps
+        if training_args.report_to == "wandb":
+            run = wandb.init(
+                project='Low-Resource-Machine-Translation',
+                name='SailorED-sft'
+            )
+        model = QwenCrossAttentionEncDecNLLB.from_pretrained(model_args.model_name_or_path, config=config)
+        config = LoraConfig(
+            r=model_args.lora_r,
+            lora_alpha=model_args.lora_alpha,
+            lora_dropout=0.1,
+            # Regex giải thích:
+            # ^encoder\.layers  -> Bắt đầu chính xác bằng cụm "encoder.layers"
+            # \..* -> Khớp với bất kỳ ký tự nào ở giữa (số layer, tên block self_attn/mlp)
+            # (q_proj|...)$     -> Kết thúc bằng một trong các tên module đích
+            target_modules=r"^encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
+            modules_to_save=["connector", "decoder"],
+            task_type=TaskType.SEQ_2_SEQ_LM  # Hoặc task phù hợp với model Enc-Dec của bạn
+        )
+
+# Kiểm tra nhanh sau khi get_peft_model
+        model = get_peft_model(model, config)
     else:
         print("Not implement this model yet!")
         exit()
@@ -237,8 +237,6 @@ def main():
 
     optimizer = None
 
-    if model_args.run_mode == "stage1":
-        manual_fix_connector_weights(model, target_dim=model.config.decoder.hidden_size)
     check_weight(model)
 
     
