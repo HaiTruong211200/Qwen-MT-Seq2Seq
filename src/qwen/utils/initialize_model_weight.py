@@ -3,15 +3,21 @@ import torch.nn as nn
 
 from qwen.models.modules.normalization import QwenRMSNorm
 
-def manual_fix_connector_weights(model, target_dim=512):
-    print("\nKHỞI TẠO LẠI GIÁ TRỊ CHO CONNECTOR...")
-    
+def manual_fix_connector_weights(model, target_dim=512, logger=None):
+    if logger:
+        logger.info("\nKHỞI TẠO LẠI GIÁ TRỊ CHO CONNECTOR...")
+    else:
+        print("\nKHỞI TẠO LẠI GIÁ TRỊ CHO CONNECTOR...")
+
     # 1. Định vị Connector
     # Tuỳ vào cách bạn đặt tên, hãy trỏ đúng vào connector
     try:
         post_encoder = model.get_encoder().connector.post_encoder
     except AttributeError:
-        print("❌ Không tìm thấy đường dẫn model.get_encoder().connector.post_encoder")
+        if logger:
+            logger.error("❌ Không tìm thấy đường dẫn model.get_encoder().connector.post_encoder")
+        else:
+            print("❌ Không tìm thấy đường dẫn model.get_encoder().connector.post_encoder")
         return
 
     # 2. Duyệt qua từng module con trong post_encoder
@@ -82,8 +88,11 @@ def manual_fix_connector_weights(model, target_dim=512):
         
         # Nếu kích thước bị sai (Ví dụ: đang là 2048 mà bạn muốn 1024)
         # if current_in_dim != target_dim:
-        print(f"🚨 PHÁT HIỆN SAI KÍCH THƯỚC! Đang thay thế Linear({current_in_dim}) -> Linear({target_dim})...")
-        
+        if logger:
+            logger.info(f"🚨 PHÁT HIỆN SAI KÍCH THƯỚC! Đang thay thế Linear({current_in_dim}) -> Linear({target_dim})...")
+        else:
+            print(f"🚨 PHÁT HIỆN SAI KÍCH THƯỚC! Đang thay thế Linear({current_in_dim}) -> Linear({target_dim})...")
+
         # TẠO LỚP MỚI ĐÚNG KÍCH THƯỚC
         new_lm_head = nn.Linear(target_dim, vocab_size, bias=False)
         
@@ -92,33 +101,58 @@ def manual_fix_connector_weights(model, target_dim=512):
         
         # Thay thế vào model
         model.lm_head = new_lm_head
-        print("✅ Đã thay thế lm_head thành công.")
+        if logger:
+            logger.info("✅ Đã thay thế lm_head thành công.")
+        else:
+            print("✅ Đã thay thế lm_head thành công.")
         
         # KHỞI TẠO TRỌNG SỐ LM_HEAD (Dù mới hay cũ cũng phải init lại)
-        print("💉 Đang khởi tạo trọng số cho lm_head...")
+        if logger:
+            logger.info("💉 Đang khởi tạo trọng số cho lm_head...")
+        else:
+            print("💉 Đang khởi tạo trọng số cho lm_head...")
         with torch.no_grad():
             nn.init.normal_(model.lm_head.weight, mean=0.0, std=0.02)
             
     else:
-        print("❌ Model không có lớp lm_head.")
-    
+        if logger:
+            logger.error("❌ Model không có lớp lm_head.")
+        else:
+            print("❌ Model không có lớp lm_head.")
 
-    print(f"✅ ĐÃ TIÊM THUỐC THÀNH CÔNG CHO {count_fixed} LỚP TRONG POST_ENCODER.")
+    if logger:
+        logger.info(f"✅ ĐÃ TIÊM THUỐC THÀNH CÔNG CHO {count_fixed} LỚP TRONG POST_ENCODER.")
+    else:
+        print(f"✅ ĐÃ TIÊM THUỐC THÀNH CÔNG CHO {count_fixed} LỚP TRONG POST_ENCODER.")
 
     # --- KIỂM TRA LẠI NGAY LẬP TỨC ---
-    print("\n🔎 KẾT QUẢ SOI KÍNH HIỂN VI:")
-    
+    if logger:
+        logger.info("\n🔎 KẾT QUẢ SOI KÍNH HIỂN VI:")
+    else:
+        print("\n🔎 KẾT QUẢ SOI KÍNH HIỂN VI:")
+
     # Check 1 lớp Linear bất kỳ trong post_encoder
     for name, module in post_encoder.named_modules():
         if isinstance(module, nn.Linear):
             max_val = module.weight.max().item()
             std_val = module.weight.std().item()
-            print(f"  Layer: {name}")
-            print(f"  -> Max: {max_val:.4f} (Kỳ vọng ~0.1 - 0.5)")
-            print(f"  -> Std: {std_val:.4f} (Kỳ vọng ~0.02)")
-            
-            if max_val > 100:
-                print("❌ VẪN CÒN RÁC! (LỖI CỰC KỲ LẠ)")
+            if logger:
+                logger.info(f"  Layer: {name}")
+                logger.info(f"  -> Max: {max_val:.4f} (Kỳ vọng ~0.1 - 0.5)")
+                logger.info(f"  -> Std: {std_val:.4f} (Kỳ vọng ~0.02)")
             else:
-                print("✅ SẠCH SẼ!")
+                print(f"  Layer: {name}")
+                print(f"  -> Max: {max_val:.4f} (Kỳ vọng ~0.1 - 0.5)")
+                print(f"  -> Std: {std_val:.4f} (Kỳ vọng ~0.02)")
+
+            if max_val > 100:
+                if logger:
+                    logger.error("❌ VẪN CÒN RÁC! (LỖI CỰC KỲ LẠ)")
+                else:
+                    print("❌ VẪN CÒN RÁC! (LỖI CỰC KỲ LẠ)")
+            else:
+                if logger:
+                    logger.info("✅ SẠCH SẼ!")
+                else:
+                    print("✅ SẠCH SẼ!")
             break # Check 1 cái là đủ

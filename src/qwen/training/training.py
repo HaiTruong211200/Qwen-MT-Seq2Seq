@@ -39,6 +39,8 @@ from qwen.config.args import DataTrainingArguments, ModelArguments
 from qwen.utils.check_weight import check_weight
 from qwen.utils.initialize_model_weight import manual_fix_connector_weights
 
+transformers.utils.logging.set_verbosity_info()
+
 logger = logging.getLogger(__name__)
 
 def main():
@@ -277,8 +279,8 @@ def main():
     optimizer = None
 
     if model_args.run_mode == "init":
-        manual_fix_connector_weights(model, target_dim=model.config.decoder.hidden_size)
-    check_weight(model)
+        manual_fix_connector_weights(model, target_dim=model.config.decoder.hidden_size, logger=logger)
+    check_weight(model, logger=logger)
 
     
     trainer = Seq2SeqTrainer(
