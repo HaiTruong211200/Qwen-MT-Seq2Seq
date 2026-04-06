@@ -170,6 +170,10 @@ def main():
         else:
             config.contrastive_lambda = model_args.contrastive_lambda
             config.contrastive_temperature = model_args.contrastive_temperature
+            config.ot_lamda = model_args.ot_lambda
+            config.ot_reg = model_args.ot_reg
+            config.ot_num_iters = model_args.ot_num_iters
+            config.ot_eps = model_args.ot_eps
             if training_args.report_to == "wandb":
                 run = wandb.init(
                     project='Low-Resource-Machine-Translation',
