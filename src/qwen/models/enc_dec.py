@@ -39,6 +39,8 @@ class QwenForEncDec(QwenPreTrainedModel):
         self.ot_reg = getattr(config, "ot_reg", 0.1)
         self.ot_num_iters = getattr(config, "ot_num_iters", 20)
         self.ot_eps = getattr(config, "ot_eps", 1e-8)
+        print(f"Contrastive Lambda: {self.contrastive_lambda}, Contrastive Temperature: {self.contrastive_temperature}")
+        print(f"OT Lambda: {self.ot_lambda}, OT Reg: {self.ot_reg}, OT Num Iters: {self.ot_num_iters}, OT Eps: {self.ot_eps}")
 
         ## encoder
         if encoder_method == "causal":
@@ -107,6 +109,7 @@ class QwenForEncDec(QwenPreTrainedModel):
         return (contrastive_loss_i + contrastive_loss_j) / 2.0 / npairs
     
     def compute_ot_loss_cosine(
+        self,
         hidden_states_a: torch.Tensor,
         mask_a: torch.Tensor,
         hidden_states_b: torch.Tensor,
@@ -314,7 +317,7 @@ class QwenForEncDec(QwenPreTrainedModel):
                     num_iters=self.ot_num_iters,
                     eps=self.ot_eps
                 )
-                print(f"OT Loss: {ot_loss.item():.4f}")
+                # print(f"OT Loss: {ot_loss.item():.4f}")
                 loss = loss + self.ot_lambda * ot_loss
         # import pdb;pdb.set_trace()
         if not return_dict:
