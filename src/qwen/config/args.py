@@ -84,6 +84,10 @@ class ModelArguments:
     lora_alpha: int = field(default=64)
     contrastive_lambda: float = field(default=0.0)
     contrastive_temperature: float = field(default=0.1)
+    ot_lambda: float = field(default=0.0)
+    ot_reg: float = field(default=0.1)
+    ot_num_iters: int = field(default=20)
+    ot_eps: float = field(default=1e-8)
 
 @dataclass
 class DataTrainingArguments:

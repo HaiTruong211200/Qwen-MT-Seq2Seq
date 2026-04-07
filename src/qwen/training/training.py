@@ -167,13 +167,18 @@ def main():
         else:
             config.contrastive_lambda = model_args.contrastive_lambda
             config.contrastive_temperature = model_args.contrastive_temperature
+            config.ot_lambda = model_args.ot_lambda
+            config.ot_reg = model_args.ot_reg
+            config.ot_num_iters = model_args.ot_num_iters
+            config.ot_eps = model_args.ot_eps
+            print("Model Stage 2 config:", config)
             if training_args.report_to == "wandb":
                 run = wandb.init(
                     project='Low-Resource-Machine-Translation',
                     name='SailorED-sft'
                 )
             model = QwenCrossAttentionEncDec.from_pretrained(model_args.model_name_or_path, config=config)
-            config = LoraConfig(
+            lora_config = LoraConfig(
                 r=model_args.lora_r,
                 lora_alpha=model_args.lora_alpha,
                 lora_dropout=0.1,
@@ -187,7 +192,7 @@ def main():
             )
 
 # Kiểm tra nhanh sau khi get_peft_model
-            model = get_peft_model(model, config)
+            model = get_peft_model(model, lora_config)
     else:
         print("Not implement this model yet!")
         exit()
