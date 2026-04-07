@@ -252,15 +252,16 @@ class QwenForEncDec(QwenPreTrainedModel):
         encoder_all_hidden_states = encoder_outputs.hidden_states
         # encoder_last_hidden_state = encoder_outputs.last_hidden_state
 
-        dec_hidden_states = self.encoder(
-            input_ids=decoder_input_ids,
-            attention_mask=decoder_attention_mask,
-            inputs_embeds=decoder_inputs_embeds,
-            use_cache=False,
-            output_attentions=False,
-            output_hidden_states=True,
-            return_dict=True,
-        ).hidden_states[-1]
+        if labels is not None:
+            dec_hidden_states = self.encoder(
+                input_ids=decoder_input_ids,
+                attention_mask=decoder_attention_mask,
+                inputs_embeds=decoder_inputs_embeds,
+                use_cache=False,
+                output_attentions=False,
+                output_hidden_states=True,
+                return_dict=True,
+            ).hidden_states[-1]
 
         decoder_outputs = self.decoder(
             decoder_input_ids,
