@@ -4,6 +4,7 @@ from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
 from typing import List, Optional, Tuple, Union, Dict, Any
 import inspect
+from dataclasses import dataclass
 
 from transformers import  PretrainedConfig
 from transformers import GenerationMixin
@@ -16,16 +17,19 @@ from .base_model import QwenPreTrainedModel
 from .encoder import QwenModelEncoder
 from .combine_encoder import QwenModelCombineEncoder
 from .decoder import QwenCrossAttDecoder
+from qwen.utils.utils import print_train_module
+
+
+@dataclass
+class CustomSeq2SeqLMOutput(Seq2SeqLMOutput):
+    lm_loss: Optional[torch.FloatTensor] = None
+    contrastive_loss: Optional[torch.FloatTensor] = None
+    ot_loss: Optional[torch.FloatTensor] = None
 
 
 if is_accelerate_available():
     from accelerate.hooks import AlignDevicesHook, add_hook_to_module
 
-def print_train_module(model):
-    for name, param in model.named_parameters():
-        if param.requires_grad:
-            if torch.cuda.current_device() == 0:
-                print(f"train  ==> {name}")
 
 class QwenForEncDec(QwenPreTrainedModel):
     _tied_weights_keys = ["lm_head.weight"]
@@ -57,7 +61,7 @@ class QwenForEncDec(QwenPreTrainedModel):
         ## decoder
         # decoder_config = PretrainedConfig.from_dict(config.decoder) if getattr(config, "decoder", None) is not None else config
         decoder_config = PretrainedConfig.from_dict(config.decoder.to_dict()) if getattr(config, "decoder", None) is not None else config
-        if decoder_config.model_method == "lamate":
+        if decoder_config.model_method in ["lamate", "SailorED"]:
             self.decoder = QwenCrossAttDecoder(decoder_config)
             self.lm_head = nn.Linear(decoder_config.hidden_size, config.vocab_size, bias=False)
         else:
@@ -251,7 +255,6 @@ class QwenForEncDec(QwenPreTrainedModel):
         # a tuple of length layer_num + 1 
         encoder_all_hidden_states = encoder_outputs.hidden_states
         # encoder_last_hidden_state = encoder_outputs.last_hidden_state
-
         if labels is not None:
             dec_hidden_states = self.encoder(
                 input_ids=decoder_input_ids,
@@ -320,14 +323,16 @@ class QwenForEncDec(QwenPreTrainedModel):
                 )
                 # print(f"OT Loss: {ot_loss.item():.4f}")
                 loss = loss + self.ot_lambda * ot_loss
-        
         # import pdb;pdb.set_trace()
         if not return_dict:
             output = (logits,) + decoder_outputs[1:]
             return (loss,) + output if loss is not None else output
 
-        return Seq2SeqLMOutput(
+        return CustomSeq2SeqLMOutput(
             loss=loss,
+            lm_loss=lm_loss.detach(),
+            contrastive_loss=contrastive_loss.detach() if self.contrastive_lambda > 0 else None,
+            ot_loss=ot_loss.detach() if self.ot_lambda > 0 else None,
             logits=logits,
             past_key_values=decoder_outputs.past_key_values,
             decoder_hidden_states=decoder_outputs.hidden_states,
@@ -548,8 +553,32 @@ class QwenCrossAttentionEncDec(QwenForEncDec, GenerationMixin):
                 is_freeze = True
             if torch.cuda.current_device() == 0 and is_freeze:
                 print(f"freeze ==> {name}")
-        print_train_module(self)
+        # print_train_module(self)
 
+    def freeze_decoder(self, freeze_cross_attn=True):
+        if freeze_cross_attn:
+            for name, param in self.named_parameters():
+                is_freeze = False
+
+                ## freeze the whole decoder 
+                if name.startswith("decoder."):
+                    param.requires_grad = False
+                    is_freeze = True
+                if torch.cuda.current_device() == 0 and is_freeze:
+                    print(f"freeze ==> {name}")
+        else:
+            for name, param in self.named_parameters():
+                is_freeze = False
+
+                ## freeze the whole decoder except cross attention
+                if name.startswith("decoder.") and not name.startswith("decoder.cross_attn"):
+                    param.requires_grad = False
+                    is_freeze = True
+                if torch.cuda.current_device() == 0 and is_freeze:
+                    print(f"freeze ==> {name}")
+        # print_train_module(self)
+
+    
     def prepare_inputs_for_generation(
         self, 
         input_ids, # decoder's

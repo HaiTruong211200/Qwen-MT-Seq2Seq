@@ -189,21 +189,23 @@ def main():
                     name='SailorED-sft'
                 )
             model = QwenCrossAttentionEncDec.from_pretrained(model_args.model_name_or_path, config=config)
-            lora_config = LoraConfig(
-                r=model_args.lora_r,
-                lora_alpha=model_args.lora_alpha,
-                lora_dropout=0.1,
-                # Regex giải thích:
-                # ^encoder\.layers  -> Bắt đầu chính xác bằng cụm "encoder.layers"
-                # \..* -> Khớp với bất kỳ ký tự nào ở giữa (số layer, tên block self_attn/mlp)
-                # (q_proj|...)$     -> Kết thúc bằng một trong các tên module đích
-                target_modules=r"^encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
-                modules_to_save=["connector", "decoder"],
-                task_type=TaskType.SEQ_2_SEQ_LM  # Hoặc task phù hợp với model Enc-Dec của bạn
-            )
+            model.freeze_llm() # frozen LLM
+            model.freeze_decoder(freeze_cross_attn=False) # only train cross attention in decoder
+#             lora_config = LoraConfig(
+#                 r=model_args.lora_r,
+#                 lora_alpha=model_args.lora_alpha,
+#                 lora_dropout=0.1,
+#                 # Regex giải thích:
+#                 # ^encoder\.layers  -> Bắt đầu chính xác bằng cụm "encoder.layers"
+#                 # \..* -> Khớp với bất kỳ ký tự nào ở giữa (số layer, tên block self_attn/mlp)
+#                 # (q_proj|...)$     -> Kết thúc bằng một trong các tên module đích
+#                 target_modules=r"^encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
+#                 modules_to_save=["connector", "decoder"],
+#                 task_type=TaskType.SEQ_2_SEQ_LM  # Hoặc task phù hợp với model Enc-Dec của bạn
+#             )
 
-# Kiểm tra nhanh sau khi get_peft_model
-            model = get_peft_model(model, lora_config)
+# # Kiểm tra nhanh sau khi get_peft_model
+#             model = get_peft_model(model, lora_config)
     else:
         print(">>> Running other model")
         print("Not implement this model yet!")

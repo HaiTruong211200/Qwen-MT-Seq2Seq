@@ -263,3 +263,10 @@ def print_trainable_parameters(model):
     print(
         f"trainable params: {trainable_params} || all params: {all_param} || trainable%: {100 * trainable_params / all_param}"
     )
+
+
+def print_train_module(model):
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            if torch.cuda.current_device() == 0:
+                print(f"train  ==> {name}")
