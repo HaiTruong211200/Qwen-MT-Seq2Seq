@@ -556,27 +556,23 @@ class QwenCrossAttentionEncDec(QwenForEncDec, GenerationMixin):
         # print_train_module(self)
 
     def freeze_decoder(self, freeze_cross_attn=True):
-        if freeze_cross_attn:
-            for name, param in self.named_parameters():
-                is_freeze = False
+        for name, param in self.named_parameters():
+            is_freeze = False
 
-                ## freeze the whole decoder 
-                if name.startswith("decoder."):
+            if name.startswith("decoder."):
+                # freeze toàn bộ decoder
+                if freeze_cross_attn:
                     param.requires_grad = False
                     is_freeze = True
-                if torch.cuda.current_device() == 0 and is_freeze:
-                    print(f"freeze ==> {name}")
-        else:
-            for name, param in self.named_parameters():
-                is_freeze = False
 
-                ## freeze the whole decoder except cross attention
-                if name.startswith("decoder.") and not name.startswith("decoder.cross_attn"):
-                    param.requires_grad = False
-                    is_freeze = True
-                if torch.cuda.current_device() == 0 and is_freeze:
-                    print(f"freeze ==> {name}")
-        # print_train_module(self)
+                # freeze decoder nhưng giữ cross attention trainable
+                else:
+                    if ".cross_attn." not in name:
+                        param.requires_grad = False
+                        is_freeze = True
+
+            if torch.cuda.current_device() == 0 and is_freeze:
+                print(f"freeze ==> {name}")
 
     
     def prepare_inputs_for_generation(
