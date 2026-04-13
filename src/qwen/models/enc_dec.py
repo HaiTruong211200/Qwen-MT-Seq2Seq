@@ -328,20 +328,36 @@ class QwenForEncDec(QwenPreTrainedModel):
             output = (logits,) + decoder_outputs[1:]
             return (loss,) + output if loss is not None else output
 
-        return CustomSeq2SeqLMOutput(
-            loss=loss,
-            lm_loss=lm_loss.detach(),
-            contrastive_loss=contrastive_loss.detach() if self.contrastive_lambda > 0 else None,
-            ot_loss=ot_loss.detach() if self.ot_lambda > 0 else None,
-            logits=logits,
-            past_key_values=decoder_outputs.past_key_values,
-            decoder_hidden_states=decoder_outputs.hidden_states,
-            decoder_attentions=decoder_outputs.attentions,
-            cross_attentions=None,
-            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
-            encoder_hidden_states=encoder_outputs.hidden_states,
-            encoder_attentions=encoder_outputs.attentions,
-        )
+        if labels is None:
+            return CustomSeq2SeqLMOutput(
+                loss=loss,
+                lm_loss=None,
+                contrastive_loss=None,
+                ot_loss=None,
+                logits=logits,
+                past_key_values=decoder_outputs.past_key_values,
+                decoder_hidden_states=decoder_outputs.hidden_states,
+                decoder_attentions=decoder_outputs.attentions,
+                cross_attentions=None,
+                encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+                encoder_hidden_states=encoder_outputs.hidden_states,
+                encoder_attentions=encoder_outputs.attentions,
+            )
+        else:
+            return CustomSeq2SeqLMOutput(
+                loss=loss,
+                lm_loss=lm_loss.detach(),
+                contrastive_loss=contrastive_loss.detach() if self.contrastive_lambda > 0 else None,
+                ot_loss=ot_loss.detach() if self.ot_lambda > 0 else None,
+                logits=logits,
+                past_key_values=decoder_outputs.past_key_values,
+                decoder_hidden_states=decoder_outputs.hidden_states,
+                decoder_attentions=decoder_outputs.attentions,
+                cross_attentions=None,
+                encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+                encoder_hidden_states=encoder_outputs.hidden_states,
+                encoder_attentions=encoder_outputs.attentions,
+            )
 
     def _prepare_encoder_decoder_kwargs_for_generation(
         self, 
