@@ -3,9 +3,12 @@ import os
 import sys
 import warnings
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union
 import torch
+import torch.nn as nn
 import time
+from typing import Any, Union
+
 
 import datasets
 import wandb
@@ -13,9 +16,10 @@ import numpy as np
 import copy
 import qwen.process_data.collator as collator
 import qwen.utils.utils as utils
+from qwen.training.trainer import CustomSeq2SeqTrainer
 from qwen.process_data.process_data import load_mmt_dataset, process_mmt_data_for_seq2seq, load_data_pretrain, process_pretrain_data_for_seq2seq
 import re
-from peft import LoraConfig, TaskType, get_peft_model
+from peft import LoraConfig, TaskType, get_peft_model, PeftModel
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
 
 import transformers
@@ -33,15 +37,20 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint
 
+
 from qwen.models.enc_dec import QwenCrossAttentionEncDec
 from qwen.config.args import DataTrainingArguments, ModelArguments
 
 from qwen.utils.check_weight import check_weight
 from qwen.utils.initialize_model_weight import manual_fix_connector_weights
+from qwen.utils.utils import print_train_module
 
 transformers.utils.logging.set_verbosity_info()
 
 logger = logging.getLogger(__name__)
+
+
+
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
@@ -131,7 +140,6 @@ def main():
             token=model_args.token,
             trust_remote_code=model_args.trust_remote_code,
         )
-    
     elif model_args.model_method == "SailorED":
         print(">>> Running SailorED model")
         # stage 1
@@ -200,6 +208,8 @@ def main():
         print(">>> Running other model")
         print("Not implement this model yet!")
         exit()
+
+    print_train_module(model)
     
     # model.generation_config = GenerationConfig.from_pretrained(
     #     model_args.model_name_or_path,
@@ -288,7 +298,7 @@ def main():
     check_weight(model, logger=logger)
 
     
-    trainer = Seq2SeqTrainer(
+    trainer = CustomSeq2SeqTrainer(
         model=model,
         args=training_args,
         train_dataset=train_datasets if training_args.do_train else None,

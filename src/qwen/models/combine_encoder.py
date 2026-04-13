@@ -114,8 +114,11 @@ class QwenModelCombineEncoder(QwenModelEncoder):
         )
 
         output_hidden_states = encoder_outputs.hidden_states
+        hidden_states = encoder_outputs.hidden_states[1:]
+        # print(type(hidden_states))
         fuse_hidden_state = self.fuse_model(output_hidden_states[1:])  # exclude embedding
         last_hidden_state = fuse_hidden_state
+        hidden_states = hidden_states + (fuse_hidden_state,)
 
         # last_hidden_state = encoder_outputs.last_hidden_state
         
@@ -124,11 +127,11 @@ class QwenModelCombineEncoder(QwenModelEncoder):
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
-        hidden_states = connector_outputs.last_hidden_state
+        hidden_states = hidden_states + (connector_outputs.last_hidden_state,)
 
         return BaseModelOutputWithPast(
-            last_hidden_state=hidden_states,
+            last_hidden_state=connector_outputs.last_hidden_state,
             past_key_values=None,
-            hidden_states=[hidden_states], # for compatible other's decoder
+            hidden_states=hidden_states, # for compatible other's decoder
             attentions=None,
         )
