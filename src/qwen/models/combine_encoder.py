@@ -127,7 +127,7 @@ class QwenModelCombineEncoder(QwenModelEncoder):
             input_ids=input_ids,
             attention_mask=attention_mask,
         )
-        hidden_states = hidden_states + (connector_outputs.last_hidden_state,)
+        hidden_states = hidden_states + connector_outputs.hidden_states
 
         return BaseModelOutputWithPast(
             last_hidden_state=connector_outputs.last_hidden_state,

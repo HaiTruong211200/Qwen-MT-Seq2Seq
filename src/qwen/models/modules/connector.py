@@ -71,7 +71,8 @@ class Connector(nn.Module):
         output_attentions: Optional[bool] = None,
         return_dict: Optional[bool] = None,
     ):
-        hidden = self.encoder_project(hidden)        
+        hidden = self.encoder_project(hidden)
+        hidden_states = (hidden,)        
         if self.encoder_method == "stack":
             post_encoder_outputs = self.post_encoder(
                 attention_mask=attention_mask,
@@ -82,12 +83,14 @@ class Connector(nn.Module):
                 return_dict=return_dict,
             )
             hidden = post_encoder_outputs.last_hidden_state
+            hidden_states += post_encoder_outputs.hidden_states
+        # print(len(hidden_states))
             
         ## temp return None
         return BaseModelOutputWithPast(
             last_hidden_state=hidden,
             past_key_values=None,
-            hidden_states=[hidden],
+            hidden_states=hidden_states,
             attentions=None,
         )
 

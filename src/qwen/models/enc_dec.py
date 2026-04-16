@@ -43,6 +43,7 @@ class QwenForEncDec(QwenPreTrainedModel):
         self.ot_reg = getattr(config, "ot_reg", 0.1)
         self.ot_num_iters = getattr(config, "ot_num_iters", 20)
         self.ot_eps = getattr(config, "ot_eps", 1e-8)
+        self.num_layers_align = getattr(config, "num_layers_align", 4)
         print(f"Contrastive Lambda: {self.contrastive_lambda}, Contrastive Temperature: {self.contrastive_temperature}")
         print(f"OT Lambda: {self.ot_lambda}, OT Reg: {self.ot_reg}, OT Num Iters: {self.ot_num_iters}, OT Eps: {self.ot_eps}")
 
@@ -264,7 +265,7 @@ class QwenForEncDec(QwenPreTrainedModel):
                 output_attentions=False,
                 output_hidden_states=True,
                 return_dict=True,
-            ).hidden_states[-1]
+            ).hidden_states
 
         decoder_outputs = self.decoder(
             decoder_input_ids,
@@ -299,9 +300,10 @@ class QwenForEncDec(QwenPreTrainedModel):
             lm_loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
             loss = lm_loss
             if self.contrastive_lambda > 0:
-                # contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], hidden_states)
-                contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], dec_hidden_states)
-                loss = lm_loss + self.contrastive_lambda * contrastive_loss
+                contrastive_loss = 0
+                for i in range(1, self.num_layers_align + 1):
+                    contrastive_loss += self.compute_contrastive_loss(encoder_all_hidden_states[-i], dec_hidden_states[-i])
+                loss = lm_loss + self.contrastive_lambda * contrastive_loss / self.num_layers_align
             if self.ot_lambda > 0:
                 # ot_loss = self.compute_ot_loss_cosine(
                 #     encoder_hidden_states=encoder_all_hidden_states[-1],

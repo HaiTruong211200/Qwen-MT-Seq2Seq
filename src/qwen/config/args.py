@@ -88,6 +88,7 @@ class ModelArguments:
     ot_reg: float = field(default=0.1)
     ot_num_iters: int = field(default=20)
     ot_eps: float = field(default=1e-8)
+    num_layers_align: int = field(default=4)
 
 @dataclass
 class DataTrainingArguments:
