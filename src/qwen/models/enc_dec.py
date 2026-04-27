@@ -317,7 +317,7 @@ class QwenForEncDec(QwenPreTrainedModel):
                 ot_loss = self.compute_ot_loss_cosine(
                     hidden_states_a=encoder_all_hidden_states[-1],
                     mask_a=attention_mask,
-                    hidden_states_b=dec_hidden_states,
+                    hidden_states_b=dec_hidden_states[-1],
                     mask_b=decoder_attention_mask,
                     reg=self.ot_reg,
                     num_iters=self.ot_num_iters,

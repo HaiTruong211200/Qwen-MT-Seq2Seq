@@ -68,33 +68,33 @@ def load_checkpoint(model_path):
 
 from transformers import AutoModelForCausalLM
 
-def make_model_state_dict(model_path):
+# def make_model_state_dict(model_path):
 
-    model = AutoModelForCausalLM.from_pretrained(
-        model_path,
-        trust_remote_code=True
-    )
+#     model = AutoModelForCausalLM.from_pretrained(
+#         model_path,
+#         trust_remote_code=True
+#     )
 
-    state = model.state_dict()
+#     state = model.state_dict()
 
-    new_state = {}
-    for key, value in state.items():
-        if key.startswith("model"):
-            key = "encoder" + key[5:]
-        new_state[key] = value
-
-    return new_state
-
-# def make_model_state_dict(model_path):   
-#     ## get encoder state and lm_head 
-#     state = load_checkpoint(model_path)
 #     new_state = {}
 #     for key, value in state.items():
 #         if key.startswith("model"):
-#             key =  "encoder" + key[5:]
-#         # lm_head
+#             key = "encoder" + key[5:]
 #         new_state[key] = value
+
 #     return new_state
+
+def make_model_state_dict(model_path):   
+    ## get encoder state and lm_head 
+    state = load_checkpoint(model_path)
+    new_state = {}
+    for key, value in state.items():
+        if key.startswith("model"):
+            key =  "encoder" + key[5:]
+        # lm_head
+        new_state[key] = value
+    return new_state
 
 def set_model_special_tokens(model, model_name_or_path):
     if "Llama-2" in model_name_or_path or "Tower" in model_name_or_path or "ALMA" in model_name_or_path:
