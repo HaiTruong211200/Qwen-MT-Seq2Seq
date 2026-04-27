@@ -223,6 +223,7 @@ def main():
     # model.generation_config = GenerationConfig.from_pretrained(
     #     model_args.model_name_or_path,
     # )
+    model.tie_weights()
 
     model = utils.set_model_special_tokens(model, model_args.model_name_or_path)
     print(model.generation_config)

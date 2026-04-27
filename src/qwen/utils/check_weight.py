@@ -108,7 +108,7 @@ def check_weight(model):
     #       f"| Std: {decoder_norm.weight.std().item():.4f}")
     
     
-    lm_head = model.lm_head
+    lm_head = model.decoder.lm_head
     print(f"Lm head shape: {lm_head.weight.shape}")
     print(f"Lm head Weight | Max: {lm_head.weight.max().item():.4f} "
       f"| Min: {lm_head.weight.min().item():.4f} "

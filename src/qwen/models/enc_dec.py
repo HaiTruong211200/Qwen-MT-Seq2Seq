@@ -430,6 +430,25 @@ class QwenCrossAttentionEncDec(QwenForEncDec, GenerationMixin):
                 print(f"freeze ==> {name}")
         print_train_module(self)
 
+    def freeze_decoder(self, freeze_cross_attn=True):
+        for name, param in self.named_parameters():
+            is_freeze = False
+
+            if name.startswith("decoder."):
+                # freeze toàn bộ decoder
+                if freeze_cross_attn:
+                    param.requires_grad = False
+                    is_freeze = True
+
+                # freeze decoder nhưng giữ cross attention trainable
+                else:
+                    if ".cross_attn." not in name:
+                        param.requires_grad = False
+                        is_freeze = True
+
+            if torch.cuda.current_device() == 0 and is_freeze:
+                print(f"freeze ==> {name}")
+
     def prepare_inputs_for_generation(
         self, 
         input_ids, # decoder's
@@ -533,7 +552,11 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         decoder_config = AutoConfig.from_pretrained(config.decoder.model_name_or_path)
         decoder_config.model_name_or_path = config.decoder.model_name_or_path
         self.decoder = NLLBDecoder(decoder_config)
-        self.lm_head = self.decoder.lm_head
+        # self.lm_head = self.decoder.lm_head
+
+        self._dynamic_tied_weights_keys = [
+            "decoder.decoder.embed_tokens.weight"
+        ]
 
     def get_input_embeddings(self):
         return self.decoder.decoder.embed_tokens
@@ -542,10 +565,10 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         self.encoder.embed_tokens = value
 
     def get_output_embeddings(self):
-        return self.lm_head
+        return self.decoder.lm_head
 
     def set_output_embeddings(self, new_embeddings):
-        self.lm_head = new_embeddings
+        self.decoder.lm_head = new_embeddings
 
     def get_encoder(self):
         return self.encoder
@@ -801,11 +824,11 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         pretraining_tp = getattr(self.config, "pretraining_tp", 1)
         if pretraining_tp is not None and pretraining_tp > 1:
             print(f"Using pretraining_tp={pretraining_tp} for parallel LM head computation!")
-            lm_head_slices = self.lm_head.weight.split(self.vocab_size // pretraining_tp, dim=0)
+            lm_head_slices = self.decoder.lm_head.weight.split(self.vocab_size // pretraining_tp, dim=0)
             logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(pretraining_tp)]
             logits = torch.cat(logits, dim=-1)
         else:
-            logits = self.lm_head(hidden_states)
+            logits = self.decoder.lm_head(hidden_states)
         logits = logits.float()
         
         loss = None
@@ -1073,17 +1096,24 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
                 print(f"freeze ==> {name}")
         print_train_module(self)
     
-    def freeze_decoder(self):
+    def freeze_decoder(self, freeze_cross_attn=True):
         for name, param in self.named_parameters():
             is_freeze = False
 
-            ## freeze the whole decoder
             if name.startswith("decoder."):
-                param.requires_grad = False
-                is_freeze = True
+                # freeze toàn bộ decoder
+                if freeze_cross_attn:
+                    param.requires_grad = False
+                    is_freeze = True
+
+                # freeze decoder nhưng giữ cross attention trainable
+                else:
+                    if ".cross_attn." not in name:
+                        param.requires_grad = False
+                        is_freeze = True
+
             if torch.cuda.current_device() == 0 and is_freeze:
                 print(f"freeze ==> {name}")
-        print_train_module(self)
 
 
     def prepare_inputs_for_generation(
