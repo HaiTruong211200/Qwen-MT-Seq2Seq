@@ -7,7 +7,7 @@ import inspect
 
 from transformers import  PretrainedConfig, AutoConfig
 from transformers import GenerationMixin
-from transformers.modeling_outputs import Seq2SeqLMOutput,  ModelOutput
+from transformers.modeling_outputs import Seq2SeqLMOutput,  ModelOutput, BaseModelOutput
 from transformers.utils import is_accelerate_available
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
 from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
@@ -530,45 +530,82 @@ class QwenCrossAttentionEncDec(QwenForEncDec, GenerationMixin):
 class QwenEncDecNLLB(QwenPreTrainedModel):
     def __init__(self, config):
         super().__init__(config)
-        encoder_method = getattr(config, "encoder_method", "causal")
-        self.contrastive_lambda = getattr(config, "contrastive_lambda", 0.0)
-        self.contrastive_temperature = getattr(config, "contrastive_temperature", 0.1)
+
+        encoder_method = getattr(
+            config,
+            "encoder_method",
+            "causal"
+        )
+
+        # OT / contrastive params
+        self.contrastive_lambda = getattr(
+            config,
+            "contrastive_lambda",
+            0.0
+        )
+
+        self.contrastive_temperature = getattr(
+            config,
+            "contrastive_temperature",
+            0.1
+        )
+
         self.ot_lambda = getattr(config, "ot_lambda", 0.0)
         self.ot_reg = getattr(config, "ot_reg", 0.1)
         self.ot_num_iters = getattr(config, "ot_num_iters", 20)
         self.ot_eps = getattr(config, "ot_eps", 1e-8)
 
-        ## encoder
+        # ====================
+        # Qwen encoder
+        # ====================
+
         if encoder_method == "causal":
-            self.encoder = QwenModelEncoder(config)
             print("Using causal LLM Encoder!")
-        # elif encoder_method == "bidirectional":
-        #     self.encoder = QwenModelBiAttEncoder(config)
-        #     print("Using bidirectional LLM Encoder!")
-        elif encoder_method in ["stack", "project"]: 
+            self.encoder = QwenModelEncoder(config)
+
+        elif encoder_method in ["stack", "project"]:
             print("Using combined LLM Encoder!")
             self.encoder = QwenModelCombineEncoder(config)
-        
-        decoder_config = AutoConfig.from_pretrained(config.decoder.model_name_or_path)
-        decoder_config.model_name_or_path = config.decoder.model_name_or_path
+
+        else:
+            raise ValueError(
+                f"Unsupported encoder_method: {encoder_method}"
+            )
+
+        # ====================
+        # NLLB decoder
+        # ====================
+
+        decoder_config = AutoConfig.from_pretrained(
+            config.decoder.model_name_or_path
+        )
+
+        decoder_config.model_name_or_path = (
+            config.decoder.model_name_or_path
+        )
+
         self.decoder = NLLBDecoder(decoder_config)
+
+        self.vocab_size = self.decoder.vocab_size
+
         # self.lm_head = self.decoder.lm_head
 
+        # tied embeddings
         self._dynamic_tied_weights_keys = [
-            "decoder.decoder.embed_tokens.weight"
+            "decoder.embed_tokens.weight"
         ]
 
     def get_input_embeddings(self):
-        return self.decoder.decoder.embed_tokens
+        return self.decoder.mt_model.model.decoder.embed_tokens
 
     def set_input_embeddings(self, value):
         self.encoder.embed_tokens = value
 
     def get_output_embeddings(self):
-        return self.decoder.lm_head
+        return self.decoder.mt_model.lm_head
 
     def set_output_embeddings(self, new_embeddings):
-        self.decoder.lm_head = new_embeddings
+        self.decoder.mt_model.lm_head = new_embeddings
 
     def get_encoder(self):
         return self.encoder
@@ -773,107 +810,144 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
 
         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
         # need encoder return all hidden state
-        if encoder_outputs is None:
-            encoder_outputs = self.encoder(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                inputs_embeds=inputs_embeds,
-                use_cache=False,
+
+        if labels is not None:
+            if encoder_outputs is None:
+                encoder_outputs = self.encoder(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    inputs_embeds=inputs_embeds,
+                    use_cache=False,
+                    output_attentions=output_attentions,
+                    output_hidden_states=True,
+                    return_dict=return_dict,
+                )
+
+            # a tuple of length layer_num + 1 
+            encoder_all_hidden_states = encoder_outputs.hidden_states
+            # encoder_last_hidden_state = encoder_outputs.last_hidden_state
+
+            # Contrastive Loss
+            # dec_attention = torch.ones_like(decoder_input_ids)
+            # dec_hidden_states = self.encoder(
+            #     input_ids=decoder_input_ids,
+            #     attention_mask=dec_attention,
+            #     inputs_embeds=decoder_inputs_embeds,
+            #     use_cache=False,
+            #     output_attentions=False,
+            #     output_hidden_states=True,
+            #     return_dict=True,
+            # ).hidden_states[-1]
+
+            position_ids = position_ids if position_ids is not None else torch.arange(decoder_input_ids.shape[1], device=decoder_input_ids.device).unsqueeze(0).expand(decoder_input_ids.shape[0], -1)
+
+
+            decoder_outputs = self.decoder(
+                decoder_input_ids,
+                attention_mask=decoder_attention_mask,
+                inputs_embeds=decoder_inputs_embeds,
+                past_key_values=past_key_values,
+                encoder_all_hidden_states=encoder_all_hidden_states,
+                encoder_attention_mask=attention_mask,
+                # use_cache=use_cache,
+                use_cache=True,
                 output_attentions=output_attentions,
-                output_hidden_states=True,
+                output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
+                cache_position=cache_position,
+                position_ids=position_ids,
+            )
+            # print(decoder_outputs.keys())
+            hidden_states = decoder_outputs[0]
+            ## compute loss 
+            pretraining_tp = getattr(self.config, "pretraining_tp", 1)
+            if pretraining_tp is not None and pretraining_tp > 1:
+                print(f"Using pretraining_tp={pretraining_tp} for parallel LM head computation!")
+                lm_head_slices = self.decoder.mt_model.lm_head.weight.split(self.vocab_size // pretraining_tp, dim=0)
+                logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(pretraining_tp)]
+                logits = torch.cat(logits, dim=-1)
+            else:
+                logits = self.decoder.mt_model.lm_head(hidden_states)
+            logits = logits.float()
+            
+            loss = None
+            if labels is not None:
+                # print(f"labels shape: {labels.shape}, logits shape: {logits.shape}")
+                loss_fct = CrossEntropyLoss()
+                labels = labels.to(logits.device)
+                lm_loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
+                loss = lm_loss
+                if self.contrastive_lambda > 0:
+                    contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], hidden_states)
+                    # contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], dec_hidden_states)
+                    loss = lm_loss + self.contrastive_lambda * contrastive_loss
+                if self.ot_lambda > 0:
+                    ot_loss = self.compute_ot_loss_cosine(
+                        encoder_hidden_states=encoder_all_hidden_states[-1],
+                        mask_a=attention_mask,
+                        hidden_states_b=hidden_states,
+                        mask_b=decoder_attention_mask,
+                        reg=self.ot_reg,
+                        num_iters=self.ot_num_iters,
+                        eps=self.ot_eps
+                    )
+                    print(f"OT Loss: {ot_loss.item():.4f}")
+                    loss = loss + self.ot_lambda * ot_loss
+                # else:
+                #     loss = lm_loss
+            
+            # import pdb;pdb.set_trace()
+            if not return_dict:
+                output = (logits,) + decoder_outputs[1:]
+                return (loss,) + output if loss is not None else output
+
+            return Seq2SeqLMOutput(
+                loss=loss,
+                logits=logits,
+                past_key_values=decoder_outputs.past_key_values,
+                decoder_hidden_states=decoder_outputs.hidden_states,
+                decoder_attentions=decoder_outputs.attentions,
+                # decoder_hidden_states=decoder_outputs,
+                cross_attentions=None,
+                encoder_last_hidden_state=encoder_outputs.last_hidden_state,
+                encoder_hidden_states=encoder_outputs.hidden_states,
+                encoder_attentions=encoder_outputs.attentions,
+            )
+        else:
+            
+            encoder_outputs = self.encoder(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    inputs_embeds=inputs_embeds,
+                    use_cache=False,
+                    output_attentions=output_attentions,
+                    output_hidden_states=True,
+                    return_dict=return_dict,
+                )
+            
+            encoder_outputs = BaseModelOutput(
+                last_hidden_state=encoder_outputs.last_hidden_state,
+            )
+            
+            
+            decoder_generate_ids_list = []
+            
+
+            decoder_generate_ids = self.decoder.mt_model.generate(
+                input_ids=decoder_input_ids,
+                forced_bos_token_id=decoder_input_ids[0, 0].item(),
+                encoder_outputs=encoder_outputs,
+                attention_mask=attention_mask
             )
 
-        # a tuple of length layer_num + 1 
-        encoder_all_hidden_states = encoder_outputs.hidden_states
-        # encoder_last_hidden_state = encoder_outputs.last_hidden_state
+            decoder_generate_ids_list.append(decoder_generate_ids)
 
-        # Contrastive Loss
-        # dec_attention = torch.ones_like(decoder_input_ids)
-        # dec_hidden_states = self.encoder(
-        #     input_ids=decoder_input_ids,
-        #     attention_mask=dec_attention,
-        #     inputs_embeds=decoder_inputs_embeds,
-        #     use_cache=False,
-        #     output_attentions=False,
-        #     output_hidden_states=True,
-        #     return_dict=True,
-        # ).hidden_states[-1]
+            if len(decoder_generate_ids_list) == 1:
+                return (input_ids, decoder_generate_ids_list[0])
+            else:
+                return (input_ids, decoder_generate_ids_list)
+    
 
-        position_ids = position_ids if position_ids is not None else torch.arange(decoder_input_ids.shape[1], device=decoder_input_ids.device).unsqueeze(0).expand(decoder_input_ids.shape[0], -1)
-
-
-        decoder_outputs = self.decoder(
-            decoder_input_ids,
-            attention_mask=decoder_attention_mask,
-            inputs_embeds=decoder_inputs_embeds,
-            past_key_values=past_key_values,
-            encoder_all_hidden_states=encoder_all_hidden_states,
-            encoder_attention_mask=attention_mask,
-            # use_cache=use_cache,
-            use_cache=True,
-            output_attentions=output_attentions,
-            output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
-            cache_position=cache_position,
-            position_ids=position_ids,
-        )
-        # print(decoder_outputs.keys())
-        hidden_states = decoder_outputs[0]
-        ## compute loss 
-        pretraining_tp = getattr(self.config, "pretraining_tp", 1)
-        if pretraining_tp is not None and pretraining_tp > 1:
-            print(f"Using pretraining_tp={pretraining_tp} for parallel LM head computation!")
-            lm_head_slices = self.decoder.lm_head.weight.split(self.vocab_size // pretraining_tp, dim=0)
-            logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(pretraining_tp)]
-            logits = torch.cat(logits, dim=-1)
-        else:
-            logits = self.decoder.lm_head(hidden_states)
-        logits = logits.float()
-        
-        loss = None
-        if labels is not None:
-            # print(f"labels shape: {labels.shape}, logits shape: {logits.shape}")
-            loss_fct = CrossEntropyLoss()
-            labels = labels.to(logits.device)
-            lm_loss = loss_fct(logits.view(-1, logits.size(-1)), labels.view(-1))
-            loss = lm_loss
-            if self.contrastive_lambda > 0:
-                contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], hidden_states)
-                # contrastive_loss = self.compute_contrastive_loss(encoder_all_hidden_states[-1], dec_hidden_states)
-                loss = lm_loss + self.contrastive_lambda * contrastive_loss
-            if self.ot_lambda > 0:
-                ot_loss = self.compute_ot_loss_cosine(
-                    encoder_hidden_states=encoder_all_hidden_states[-1],
-                    mask_a=attention_mask,
-                    hidden_states_b=hidden_states,
-                    mask_b=decoder_attention_mask,
-                    reg=self.ot_reg,
-                    num_iters=self.ot_num_iters,
-                    eps=self.ot_eps
-                )
-                print(f"OT Loss: {ot_loss.item():.4f}")
-                loss = loss + self.ot_lambda * ot_loss
-            # else:
-            #     loss = lm_loss
-        
-        # import pdb;pdb.set_trace()
-        if not return_dict:
-            output = (logits,) + decoder_outputs[1:]
-            return (loss,) + output if loss is not None else output
-
-        return Seq2SeqLMOutput(
-            loss=loss,
-            logits=logits,
-            past_key_values=decoder_outputs.past_key_values,
-            decoder_hidden_states=decoder_outputs.hidden_states,
-            decoder_attentions=decoder_outputs.attentions,
-            # decoder_hidden_states=decoder_outputs,
-            cross_attentions=None,
-            encoder_last_hidden_state=encoder_outputs.last_hidden_state,
-            encoder_hidden_states=encoder_outputs.hidden_states,
-            encoder_attentions=encoder_outputs.attentions,
-        )
     
     def _prepare_encoder_decoder_kwargs_for_generation(
         self, 
@@ -1095,12 +1169,25 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
             if torch.cuda.current_device() == 0 and is_freeze:
                 print(f"freeze ==> {name}")
         print_train_module(self)
+
+    # def freeze_encoder(self):
+    #     for name, param in self.named_parameters():
+    #         is_freeze = False
+
+    #         ## freeze the whole encoder except connector
+    #         if name.startswith("decoder.model.encoder"):
+    #             param.requires_grad = False
+    #             is_freeze = True
+
+    #         if torch.cuda.current_device() == 0 and is_freeze:
+    #             print(f"freeze ==> {name}")
+    #     print_train_module(self)
     
     def freeze_decoder(self, freeze_cross_attn=True):
         for name, param in self.named_parameters():
             is_freeze = False
 
-            if name.startswith("decoder."):
+            if name.startswith("decoder.model.decoder"):
                 # freeze toàn bộ decoder
                 if freeze_cross_attn:
                     param.requires_grad = False

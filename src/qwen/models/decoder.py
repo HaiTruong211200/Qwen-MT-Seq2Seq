@@ -327,16 +327,33 @@ class QwenCrossAttDecoder(QwenPreTrainedModel):
 class NLLBDecoder(nn.Module):
     def __init__(self, config):
         super().__init__()
+
         self.config = config
-        nllb_model = AutoModelForSeq2SeqLM.from_pretrained(config.model_name_or_path)
-        self.decoder = nllb_model.model.decoder
-        # self.embed_tokens = nllb_model.model.decoder.embed_tokens
-        # self.layers = nllb_model.model.decoder.layers
-        # self.norm = nllb_model.model.decoder.layer_norm
-        # self.gradient_checkpointing = False
-        # self.embed_positions = nllb_model.model.decoder.embed_positions
-        self.vocab_size = nllb_model.config.vocab_size
-        self.lm_head = nllb_model.lm_head
+
+        # full NLLB model
+        self.mt_model = AutoModelForSeq2SeqLM.from_pretrained(
+            config.model_name_or_path,
+            device_map=None,
+        )
+
+        # shortcuts
+        # self.model = self.mt_model.model
+
+        # self.encoder = self.model.encoder
+        # self.decoder = self.model.decoder
+
+        # self.shared = self.model.shared
+        # # self.lm_head = self.mt_model.lm_head
+
+        # # decoder shortcuts
+        # self.embed_tokens = self.decoder.embed_tokens
+        # self.embed_positions = self.decoder.embed_positions
+        # self.layers = self.decoder.layers
+        # self.layer_norm = self.decoder.layer_norm
+
+        self.vocab_size = self.mt_model.config.vocab_size
+
+        self.gradient_checkpointing = False
 
     def forward(
         self,
@@ -354,7 +371,7 @@ class NLLBDecoder(nn.Module):
         encoder_attention_mask:  Optional[torch.Tensor] = None,
     ) -> Union[Tuple, BaseModelOutputWithPast]:
         if inputs_embeds is None:
-            inputs_embeds = self.decoder.embed_tokens(input_ids) + self.decoder.embed_positions(position_ids)
+            inputs_embeds = self.mt_model.model.decoder.embed_tokens(input_ids) + self.mt_model.model.decoder.embed_positions(position_ids)
         
         
         hidden_states = inputs_embeds
@@ -373,7 +390,7 @@ class NLLBDecoder(nn.Module):
         #     )[0]
 
         # hidden_states = self.norm(hidden_states)
-        outputs = self.decoder(
+        outputs = self.mt_model.model.decoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
             past_key_values=past_key_values,

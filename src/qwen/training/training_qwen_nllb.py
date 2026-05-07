@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 import torch
 import time
+from torch.utils.data import DataLoader
 
 import datasets
 import wandb
@@ -309,6 +310,9 @@ def main():
         manual_fix_connector_weights(model, target_dim=model.config.decoder.hidden_size)
     check_weight(model)
 
+    # model = model.to("cuda")
+    model.tie_weights()
+
     
     trainer = Seq2SeqTrainer(
         model=model,
@@ -365,36 +369,67 @@ def main():
                 start = time.time()
                 logger.info(f"*** Prediction for {lg_pair}.{task} ***")
 
-                predict_results = trainer.predict(
-                    task_test_dataset, 
-                    metric_key_prefix="test", 
-                    num_beams=num_beams, 
-                    max_new_tokens=data_args.max_new_tokens,
-                    do_sample=model_args.do_sample
+                batch_size = training_args.per_device_eval_batch_size
+                predict_results = []
+                dataloader = DataLoader(
+                    task_test_dataset,
+                    batch_size=batch_size,
+                    shuffle=True,
+                    collate_fn=data_collator   # 👈 QUAN TRỌNG NHẤT
                 )
-                metrics = predict_results.metrics
-
-                if int(torch.cuda.current_device()) == 0:
-                    predictions = predict_results.predictions
-                    if len(predictions) != len(task_test_dataset):
-                        predictions = predictions[:len(task_test_dataset)]
-                    num_tokens = sum([ len(t) for t in predictions ])
-                    timediff = time.time() - start
-                    logger.info(f"tokens/sec: {num_tokens//timediff}, time elapsed: {timediff}, num_tokens {num_tokens}")
-                    predictions = np.where(predictions != -100, predictions, seq2seq_tokenizer.pad_token_id)
-                    predictions = seq2seq_tokenizer.batch_decode(
+                for batch in dataloader:
+                    # for k, v in batch.items():
+                    #     print(k, type(v))
+                    inputs = {
+                        k: torch.tensor(v).to(model.device)
+                        for k, v in batch.items()
+                        if k != "labels"
+                    }
+                    with torch.no_grad():
+                        generated_ids = model(
+                            **inputs,
+                        )
+                        predict_results.append(generated_ids)
+                
+                predict_results = np.where(predictions != -100, predictions, seq2seq_tokenizer.pad_token_id)
+                predictions = seq2seq_tokenizer.batch_decode(
                         predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
                     )
-                    predictions = [pred.replace("\n", "") for pred in predictions]
+                predictions = [pred.replace("\n", "") for pred in predictions]
+
+                decode_dir = os.path.join(training_args.output_dir, "decode_result")
+                os.makedirs(decode_dir, exist_ok=True)
+                predic_file_name = f"test-{src_lang}-{tgt_lang}-{task}"
+                if task == "general_trans":
+                    predic_file_name += f"-{data_args.test_dataname}"
+                output_prediction_file = os.path.join(decode_dir, predic_file_name)
+                with open(output_prediction_file, "w", encoding="utf-8") as writer:
+                    writer.write("\n".join(predictions))
+
+
+                # if int(torch.cuda.current_device()) == 0:
+                #     predictions = predict_results.predictions
+                #     if len(predictions) != len(task_test_dataset):
+                #         predictions = predictions[:len(task_test_dataset)]
+                #     num_tokens = sum([ len(t) for t in predictions ])
+                #     timediff = time.time() - start
+                #     logger.info(f"tokens/sec: {num_tokens//timediff}, time elapsed: {timediff}, num_tokens {num_tokens}")
+                #     predictions = np.where(predictions != -100, predictions, seq2seq_tokenizer.pad_token_id)
+                #     predictions = seq2seq_tokenizer.batch_decode(
+                #         predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
+                #     )
+                #     predictions = [pred.replace("\n", "") for pred in predictions]
                     
-                    decode_dir = os.path.join(training_args.output_dir, "decode_result")
-                    os.makedirs(decode_dir, exist_ok=True)
-                    predic_file_name = f"test-{src_lang}-{tgt_lang}-{task}"
-                    if task == "general_trans":
-                        predic_file_name += f"-{data_args.test_dataname}"
-                    output_prediction_file = os.path.join(decode_dir, predic_file_name)
-                    with open(output_prediction_file, "w", encoding="utf-8") as writer:
-                        writer.write("\n".join(predictions))
+                #     decode_dir = os.path.join(training_args.output_dir, "decode_result")
+                #     os.makedirs(decode_dir, exist_ok=True)
+                #     predic_file_name = f"test-{src_lang}-{tgt_lang}-{task}"
+                #     if task == "general_trans":
+                #         predic_file_name += f"-{data_args.test_dataname}"
+                #     output_prediction_file = os.path.join(decode_dir, predic_file_name)
+                #     with open(output_prediction_file, "w", encoding="utf-8") as writer:
+                #         writer.write("\n".join(predictions))
+
+    
 
 if __name__ == "__main__":
     main()

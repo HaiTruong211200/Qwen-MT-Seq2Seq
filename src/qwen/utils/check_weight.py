@@ -68,7 +68,7 @@ def check_weight(model):
 
     print("--- KIỂM TRA TRỌNG SỐ DECODER ---")
     decoder = model.get_decoder()
-    for idx, layer in enumerate(decoder.decoder.layers):
+    for idx, layer in enumerate(decoder.mt_model.model.decoder.layers):
         print(f"Layer {idx}")
     #     print(
     #         f"Shape: {layer.input_layernorm.weight.shape}"
@@ -107,8 +107,10 @@ def check_weight(model):
     #       f"| Mean: {decoder_norm.weight.mean().item():.4f} "
     #       f"| Std: {decoder_norm.weight.std().item():.4f}")
     
-    
-    lm_head = model.decoder.lm_head
+    print("--- KIỂM TRA TRỌNG SỐ LM_HEAD ---")
+    lm_head = model.decoder.mt_model.lm_head
+    print(lm_head.weight.device)
+    print(lm_head.weight.is_meta)
     print(f"Lm head shape: {lm_head.weight.shape}")
     print(f"Lm head Weight | Max: {lm_head.weight.max().item():.4f} "
       f"| Min: {lm_head.weight.min().item():.4f} "
