@@ -194,7 +194,7 @@ class DataCollatorForQwenNLLB:
         
         ## add eos to the end of labels
         if labels[0][-1] != self.seq2seq_tokenizer.eos_token_id:
-            labels = [label + [self.tokenizer.eos_token_id] for label in labels]
+            labels = [label + [self.seq2seq_tokenizer.eos_token_id] for label in labels]
 
         ## add bos to the start of labels
         # if labels[0][0] != self.tokenizer.bos_token_id:

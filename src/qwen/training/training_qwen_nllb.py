@@ -1,3 +1,4 @@
+import csv
 import logging
 import os
 import sys
@@ -7,6 +8,7 @@ from typing import Optional
 import torch
 import time
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 import datasets
 import wandb
@@ -153,19 +155,6 @@ def main():
                     project='Low-Resource-Machine-Translation',
                     name='SailorED-pretrain'
                 )
-            # seting decoder config
-            # decoder_config = copy.deepcopy(config.to_dict())
-            # decoder_config["num_hidden_layers"] = model_args.decoder_layer_num
-            # decoder_config["num_encoder_layers"] = config.num_hidden_layers
-            # decoder_config["decoder_param_method"] = model_args.decoder_param_method
-            # decoder_config["model_method"] = model_args.model_method
-            # decoder_config["hidden_size"] = model_args.decoder_hidden_size
-            # decoder_config["intermediate_size"] = model_args.decoder_intermediate_size
-            # decoder_config["num_attention_heads"] = model_args.decoder_num_attention_heads
-            # decoder_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
-            # decoder_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
-            # decoder_config = Qwen2Config(**decoder_config)
-            # config.decoder =  decoder_config
             decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
             config.decoder = decoder_config
             adapter_config = copy.deepcopy(config.to_dict())
@@ -192,6 +181,7 @@ def main():
             state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path, seq2seq_model_name_or_path=model_args.decoder_model_name_or_path)
             model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
             model.freeze_llm() # frozen LLM
+            model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True) # only train cross attention and adapter
         # stage 2
         else:
             config.contrastive_lambda = model_args.contrastive_lambda
@@ -206,33 +196,20 @@ def main():
                 r=model_args.lora_r,
                 lora_alpha=model_args.lora_alpha,
                 lora_dropout=0.1,
-                # Regex giải thích:
-                # ^encoder\.layers  -> Bắt đầu chính xác bằng cụm "encoder.layers"
-                # \..* -> Khớp với bất kỳ ký tự nào ở giữa (số layer, tên block self_attn/mlp)
-                # (q_proj|...)$     -> Kết thúc bằng một trong các tên module đích
                 target_modules=r"^encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
                 modules_to_save=["connector", "decoder"],
-                task_type=TaskType.SEQ_2_SEQ_LM  # Hoặc task phù hợp với model Enc-Dec của bạn
+                task_type=TaskType.SEQ_2_SEQ_LM  
             )
-
-# Kiểm tra nhanh sau khi get_peft_model
             model = get_peft_model(model, config)
     else:
         print("Not implement this model yet!")
         exit()
     
-    # model.generation_config = GenerationConfig.from_pretrained(
-    #     model_args.model_name_or_path,
-    # )
     model.tie_weights()
 
     model = utils.set_model_special_tokens(model, model_args.model_name_or_path)
     print(model.generation_config)
 
-    # embedding_size = model.get_input_embeddings().weight.shape[0]
-
-    # if len(tokenizer) > embedding_size:
-    #     model.resize_token_embeddings(len(tokenizer))
 
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
@@ -240,46 +217,10 @@ def main():
     ## Preprocessing data
     ## Tokenize dataset
     if data_args.mmt_data_path is not None:
-        # if model_args.run_mode == "init" or model_args.run_mode == "continue-pretrain":
-        #     train_raw_data, valid_raw_data, test_raw_data = load_data_pretrain(languages, data_args, model_args, training_args,logger)
-        #     train_datasets, eval_datasets, test_datasets = process_pretrain_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, languages, tokenizer, data_args, training_args)
-        # elif model_args.run_mode == "sft":
         train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
-        print(train_raw_data.keys())
+        # print(train_raw_data.keys())
         train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_data, pairs, llm_tokenizer, seq2seq_tokenizer, data_args, training_args)
-
-        # print("\n" + "!"*40)
-        # print(">>> DEBUG: KIỂM TRA MẪU DATASET SAU KHI PROCESS")
-        
-        try:
-            # Lấy 1 mẫu đầu tiên từ tập train
-            sample = test_datasets[0]
-            
-            # 1. Kiểm tra các Keys (Quan trọng nhất)
-            print(f"👉 Các keys có trong dataset: {list(sample.keys())}")
-            
-            # 2. Check xem có 'labels' không?
-            if "labels" not in sample:
-                print("❌ LỖI NGHIÊM TRỌNG: Không thấy cột 'labels'. Collator sẽ không tạo decoder_input_ids!")
-                # Thử đoán xem nó đang tên là gì
-                print(f"   (Có thể nó đang tên là 'target', 'translation' hoặc 'output'?)")
-            else:
-                print("✅ Đã tìm thấy cột 'labels'.")
-
-            # 3. In thử nội dung
-            print("-" * 30)
-            print(f"Input IDs (len={len(sample['input_ids'])}): {sample['input_ids'][:10]} ...")
-            print(f"Input Text:  {llm_tokenizer.decode(sample['input_ids'], skip_special_tokens=True)}")
-            
-            if "labels" in sample:
-                print("-" * 30)
-                print(f"Labels IDs (len={len(sample['labels'])}): {sample['labels'][:10]} ...")
-                print(f"Labels Text: {seq2seq_tokenizer.decode(sample['labels'], skip_special_tokens=True)}")
-            
-        except Exception as e:
-            print(f"❌ Không thể in mẫu dataset: {e}")
-            
-        print("!"*40 + "\n")
+    
     ## Data collator
     label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else llm_tokenizer.pad_token_id
     if data_args.pad_to_max_length:
@@ -309,9 +250,6 @@ def main():
     if model_args.run_mode == "init":
         manual_fix_connector_weights(model, target_dim=model.config.decoder.hidden_size)
     check_weight(model)
-
-    # model = model.to("cuda")
-    model.tie_weights()
 
     
     trainer = Seq2SeqTrainer(
@@ -353,7 +291,8 @@ def main():
         wandb.finish()
 
     num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
-    
+
+    # Generate predictions for test set
     predict_tasks = data_args.predict_task.split(",")
     if training_args.do_predict:
         lg_pairs = sorted(test_datasets.keys())
@@ -370,14 +309,15 @@ def main():
                 logger.info(f"*** Prediction for {lg_pair}.{task} ***")
 
                 batch_size = training_args.per_device_eval_batch_size
-                predict_results = []
+                all_inputs = []
+                all_predictions = []
                 dataloader = DataLoader(
                     task_test_dataset,
                     batch_size=batch_size,
                     shuffle=True,
-                    collate_fn=data_collator   # 👈 QUAN TRỌNG NHẤT
+                    collate_fn=data_collator   
                 )
-                for batch in dataloader:
+                for batch in tqdm(dataloader, desc="Generating"):
                     # for k, v in batch.items():
                     #     print(k, type(v))
                     inputs = {
@@ -386,48 +326,41 @@ def main():
                         if k != "labels"
                     }
                     with torch.no_grad():
-                        generated_ids = model(
-                            **inputs,
-                        )
-                        predict_results.append(generated_ids)
-                
-                predict_results = np.where(predictions != -100, predictions, seq2seq_tokenizer.pad_token_id)
-                predictions = seq2seq_tokenizer.batch_decode(
-                        predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
-                    )
-                predictions = [pred.replace("\n", "") for pred in predictions]
+                        generated_ids = model(**inputs)
+                        input_ids, decoder_generate_ids_list = generated_ids
 
+                        all_inputs.extend(input_ids)
+                        all_predictions.extend(decoder_generate_ids_list)
+
+                end = time.time()
+                logger.info(f"Prediction completed in {end - start:.2f} seconds.")
+
+                inputs = np.where(inputs != -100,inputs,llm_tokenizer.pad_token_id)
+                decoded_inputs = llm_tokenizer.batch_decode(inputs,skip_special_tokens=True,clean_up_tokenization_spaces=True)
+                decoded_inputs = [text.replace("\n", "") for text in decoded_inputs]
+
+
+                # decode predictions bằng seq2seq tokenizer
+                predictions = np.where(predictions != -100, predictions, seq2seq_tokenizer.pad_token_id)
+                decoded_predictions = seq2seq_tokenizer.batch_decode(
+                    predictions,
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=True
+                )
+                decoded_predictions = [pred.replace("\n", "") for pred in decoded_predictions]
+                
+                # write prediction to csv
                 decode_dir = os.path.join(training_args.output_dir, "decode_result")
                 os.makedirs(decode_dir, exist_ok=True)
                 predic_file_name = f"test-{src_lang}-{tgt_lang}-{task}"
                 if task == "general_trans":
                     predic_file_name += f"-{data_args.test_dataname}"
-                output_prediction_file = os.path.join(decode_dir, predic_file_name)
-                with open(output_prediction_file, "w", encoding="utf-8") as writer:
-                    writer.write("\n".join(predictions))
-
-
-                # if int(torch.cuda.current_device()) == 0:
-                #     predictions = predict_results.predictions
-                #     if len(predictions) != len(task_test_dataset):
-                #         predictions = predictions[:len(task_test_dataset)]
-                #     num_tokens = sum([ len(t) for t in predictions ])
-                #     timediff = time.time() - start
-                #     logger.info(f"tokens/sec: {num_tokens//timediff}, time elapsed: {timediff}, num_tokens {num_tokens}")
-                #     predictions = np.where(predictions != -100, predictions, seq2seq_tokenizer.pad_token_id)
-                #     predictions = seq2seq_tokenizer.batch_decode(
-                #         predictions, skip_special_tokens=True, clean_up_tokenization_spaces=True
-                #     )
-                #     predictions = [pred.replace("\n", "") for pred in predictions]
-                    
-                #     decode_dir = os.path.join(training_args.output_dir, "decode_result")
-                #     os.makedirs(decode_dir, exist_ok=True)
-                #     predic_file_name = f"test-{src_lang}-{tgt_lang}-{task}"
-                #     if task == "general_trans":
-                #         predic_file_name += f"-{data_args.test_dataname}"
-                #     output_prediction_file = os.path.join(decode_dir, predic_file_name)
-                #     with open(output_prediction_file, "w", encoding="utf-8") as writer:
-                #         writer.write("\n".join(predictions))
+                output_prediction_file = os.path.join(decode_dir, predic_file_name + ".csv")
+                with open(output_prediction_file, "w", encoding="utf-8", newline="") as writer:
+                    csv_writer = csv.writer(writer)
+                    csv_writer.writerow(["input", "prediction"])
+                    for src, pred in zip(decoded_inputs, decoded_predictions):
+                        csv_writer.writerow([src, pred])
 
     
 

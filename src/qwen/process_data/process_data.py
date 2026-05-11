@@ -149,7 +149,11 @@ LANG_TABLE = {
 TOKENIZER_LANG_TABLE = {
     "vi" : "vie_Latn",
     "km" : "khm_Khmr",
-    "lo" : "lao_Laoo"
+    "lo" : "lao_Laoo",
+    "en" : "eng_Latn",
+    "th" : "tha_Thai",
+    "my" : "mya_Mymr",
+    "zh" : "zho_Hans",
 }
 
 task_prompt = {

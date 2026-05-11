@@ -5,8 +5,9 @@ import torch.nn.functional as F
 from typing import List, Optional, Tuple, Union, Dict, Any
 import inspect
 
-from transformers import  PretrainedConfig, AutoConfig
+from transformers import  PretrainedConfig, AutoConfig, GenerationConfig
 from transformers import GenerationMixin
+from transformers import AutoModelForSeq2SeqLM
 from transformers.modeling_outputs import Seq2SeqLMOutput,  ModelOutput, BaseModelOutput
 from transformers.utils import is_accelerate_available
 from transformers.cache_utils import Cache, DynamicCache, StaticCache
@@ -576,19 +577,9 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         # NLLB decoder
         # ====================
 
-        decoder_config = AutoConfig.from_pretrained(
-            config.decoder.model_name_or_path
-        )
+        self.mt_model = AutoModelForSeq2SeqLM.from_pretrained(config.decoder.model_name_or_path)
 
-        decoder_config.model_name_or_path = (
-            config.decoder.model_name_or_path
-        )
-
-        self.decoder = NLLBDecoder(decoder_config)
-
-        self.vocab_size = self.decoder.vocab_size
-
-        # self.lm_head = self.decoder.lm_head
+        self.vocab_size = self.mt_model.config.vocab_size
 
         # tied embeddings
         self._dynamic_tied_weights_keys = [
@@ -596,22 +587,22 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         ]
 
     def get_input_embeddings(self):
-        return self.decoder.mt_model.model.decoder.embed_tokens
+        return self.mt_model.model.decoder.embed_tokens
 
     def set_input_embeddings(self, value):
         self.encoder.embed_tokens = value
 
     def get_output_embeddings(self):
-        return self.decoder.mt_model.lm_head
+        return self.mt_model.lm_head
 
     def set_output_embeddings(self, new_embeddings):
-        self.decoder.mt_model.lm_head = new_embeddings
+        self.mt_model.lm_head = new_embeddings
 
     def get_encoder(self):
         return self.encoder
 
     def get_decoder(self):
-        return self.decoder
+        return self.mt_model.model.decoder
 
     def compute_contrastive_loss(self, encoder_hidden_states, decoder_hidden_states):
         # encoder_hidden_states: (batch_size, seq_len, hidden_size)
@@ -632,53 +623,6 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
 
         contrastive_loss_j = -nn.LogSoftmax(dim=1)(torch.div(anchor_dot_contrast, self.contrastive_temperature)).diag().sum() # (batch_size,)
         return (contrastive_loss_i + contrastive_loss_j) / 2.0 / npairs
-    
-    # def compute_ot_loss(
-    #     self,
-    #     hidden_states_a: torch.Tensor,
-    #     mask_a: torch.Tensor,
-    #     hidden_states_b: torch.Tensor,
-    #     mask_b: torch.Tensor,
-    #     reg: float = 0.1, num_iters: int = 50,
-    #     eps: float = 1e-8
-    # ) -> torch.Tensor:
-    #     """
-    #     Compute the optimal transport loss between two sets of hidden states.
-
-    #     Parameters:
-    #         hidden_states_a (torch.Tensor): Hidden states from the encoder (batch_size, seq_len_a, hidden_size).
-    #         mask_a (torch.Tensor): Attention mask for the encoder hidden states (batch_size, seq_len_a).
-    #         hidden_states_b (torch.Tensor): Hidden states from the decoder (batch_size, seq_len_b, hidden_size).
-    #         mask_b (torch.Tensor): Attention mask for the decoder hidden states (batch_size, seq_len_b).
-    #         reg (float): Regularization strength for Sinkhorn iterations.
-    #         num_iters (int): Number of iterations for Sinkhorn algorithm.
-        
-    #     Returns:
-    #         Tensor representing the optimal transport loss.
-    #     """
-    #     batch_size = hidden_states_a.size(0)
-    #     batch_costs = []
-        
-    #     for i in range(batch_size):
-    #         hidden_a = hidden_states_a[i][mask_a[i] == 1]
-    #         hidden_b = hidden_states_b[i][mask_b[i] == 1]
-
-    #         N = hidden_a.size(0)
-    #         M = hidden_b.size(0)
-    #         a = torch.ones(N, dtype=hidden_a.dtype, device=hidden_a.device) / N
-    #         b = torch.ones(M, dtype=hidden_b.dtype, device=hidden_b.device) / M
-
-    #         cost_matrix = torch.cdist(hidden_a, hidden_b, p=2)
-    #         K = torch.exp(-cost_matrix / reg)
-    #         u = torch.ones_like(a)
-    #         for _ in range(num_iters):
-    #             v = b / (torch.matmul(K.t(), u) + eps)
-    #             u = a / (torch.matmul(K, v) + eps)
-
-    #         transport_plan = torch.matmul(u.unsqueeze(1), torch.matmul(K, v.unsqueeze(0)))
-    #         cost = torch.sum(transport_plan * cost_matrix)
-    #         batch_costs.append(cost)
-    #     return (batch_costs, torch.stack(batch_costs).mean())
 
 
     def compute_ot_loss_cosine(
@@ -842,20 +786,34 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
             position_ids = position_ids if position_ids is not None else torch.arange(decoder_input_ids.shape[1], device=decoder_input_ids.device).unsqueeze(0).expand(decoder_input_ids.shape[0], -1)
 
 
-            decoder_outputs = self.decoder(
-                decoder_input_ids,
+            # decoder_outputs = self.decoder(
+            #     decoder_input_ids,
+            #     attention_mask=decoder_attention_mask,
+            #     inputs_embeds=decoder_inputs_embeds,
+            #     past_key_values=past_key_values,
+            #     encoder_all_hidden_states=encoder_all_hidden_states,
+            #     encoder_attention_mask=attention_mask,
+            #     # use_cache=use_cache,
+            #     use_cache=True,
+            #     output_attentions=output_attentions,
+            #     output_hidden_states=output_hidden_states,
+            #     return_dict=return_dict,
+            #     cache_position=cache_position,
+            #     position_ids=position_ids,
+            # )
+
+            decoder_outputs = self.mt_model.model.decoder(
+                input_ids=decoder_input_ids,
                 attention_mask=decoder_attention_mask,
-                inputs_embeds=decoder_inputs_embeds,
                 past_key_values=past_key_values,
-                encoder_all_hidden_states=encoder_all_hidden_states,
+                encoder_hidden_states=encoder_all_hidden_states[-1],
                 encoder_attention_mask=attention_mask,
-                # use_cache=use_cache,
-                use_cache=True,
+                use_cache=use_cache,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
                 cache_position=cache_position,
-                position_ids=position_ids,
+                # position_ids=position_ids,
             )
             # print(decoder_outputs.keys())
             hidden_states = decoder_outputs[0]
@@ -863,11 +821,12 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
             pretraining_tp = getattr(self.config, "pretraining_tp", 1)
             if pretraining_tp is not None and pretraining_tp > 1:
                 print(f"Using pretraining_tp={pretraining_tp} for parallel LM head computation!")
-                lm_head_slices = self.decoder.mt_model.lm_head.weight.split(self.vocab_size // pretraining_tp, dim=0)
+                lm_head_slices = self.mt_model.lm_head.weight.split(self.vocab_size // pretraining_tp, dim=0)
                 logits = [F.linear(hidden_states, lm_head_slices[i]) for i in range(pretraining_tp)]
                 logits = torch.cat(logits, dim=-1)
             else:
-                logits = self.decoder.mt_model.lm_head(hidden_states)
+                logits = self.mt_model.lm_head(hidden_states)
+            # print(f"Logits shape: {logits.shape}, labels shape: {labels.shape}")
             logits = logits.float()
             
             loss = None
@@ -930,22 +889,29 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
             )
             
             
-            decoder_generate_ids_list = []
+            # decoder_generate_ids_list = []
+
+            generation_config = GenerationConfig(
+                forced_bos_token_id=decoder_input_ids[0, 0].item(),
+                max_new_tokens=200,
+                num_beams=5
+            )
             
 
-            decoder_generate_ids = self.decoder.mt_model.generate(
+            decoder_generate_ids = self.mt_model.generate(
                 input_ids=decoder_input_ids,
-                forced_bos_token_id=decoder_input_ids[0, 0].item(),
+                # forced_bos_token_id=decoder_input_ids[0, 0].item(),
+                generation_config=generation_config,
                 encoder_outputs=encoder_outputs,
                 attention_mask=attention_mask
             )
 
-            decoder_generate_ids_list.append(decoder_generate_ids)
+            # decoder_generate_ids_list.append(decoder_generate_ids)
 
-            if len(decoder_generate_ids_list) == 1:
-                return (input_ids, decoder_generate_ids_list[0])
+            if len(decoder_generate_ids) == 1:
+                return (input_ids, decoder_generate_ids[0])
             else:
-                return (input_ids, decoder_generate_ids_list)
+                return (input_ids, decoder_generate_ids)
     
 
     
@@ -1183,21 +1149,27 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
     #             print(f"freeze ==> {name}")
     #     print_train_module(self)
     
-    def freeze_decoder(self, freeze_cross_attn=True):
+    def freeze_mt(self, freeze_decoder=True, freeze_cross_attn=True):
         for name, param in self.named_parameters():
             is_freeze = False
 
-            if name.startswith("decoder.model.decoder"):
-                # freeze toàn bộ decoder
-                if freeze_cross_attn:
+            if name.startswith("mt_model.model.encoder"):
+                if ".encoder." in name:
                     param.requires_grad = False
                     is_freeze = True
+                # freeze toàn bộ decoder
+                elif ".decoder." in name and freeze_decoder:
+                    param.requires_grad = False
+                    is_freeze = True
+                #     if freeze_cross_attn:
+                #         param.requires_grad = False
+                #         is_freeze = True
 
-                # freeze decoder nhưng giữ cross attention trainable
-                else:
-                    if ".cross_attn." not in name:
-                        param.requires_grad = False
-                        is_freeze = True
+                # # freeze decoder nhưng giữ cross attention trainable
+                #     else:
+                #         if ".cross_attn." not in name:
+                #             param.requires_grad = False
+                #             is_freeze = True
 
             if torch.cuda.current_device() == 0 and is_freeze:
                 print(f"freeze ==> {name}")
