@@ -1016,7 +1016,6 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
                         load_from_cache_file=not data_args.overwrite_cache,
                         desc="Running tokenizer test dataset",
                     )
-                    print(f"test_dataset[0]: {test_dataset[0]}")
                 test_datasets[lg_pair][task] = test_dataset
     
     return train_datasets, eval_datasets, test_datasets

@@ -292,6 +292,8 @@ def main():
 
     num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
 
+    # model.to("cuda:0")
+
     # Generate predictions for test set
     predict_tasks = data_args.predict_task.split(",")
     if training_args.do_predict:
@@ -318,37 +320,69 @@ def main():
                     collate_fn=data_collator   
                 )
                 for batch in tqdm(dataloader, desc="Generating"):
-                    # for k, v in batch.items():
-                    #     print(k, type(v))
                     inputs = {
-                        k: torch.tensor(v).to(model.device)
+                        k: v.to(model.device)
                         for k, v in batch.items()
                         if k != "labels"
                     }
+
                     with torch.no_grad():
                         generated_ids = model(**inputs)
                         input_ids, decoder_generate_ids_list = generated_ids
 
-                        all_inputs.extend(input_ids)
-                        all_predictions.extend(decoder_generate_ids_list)
+                        # ✅ giữ tensor, không phá structure
+                        all_inputs.append(input_ids.detach().cpu())
+                        all_predictions.append(decoder_generate_ids_list.detach().cpu())
+
+                        break
 
                 end = time.time()
                 logger.info(f"Prediction completed in {end - start:.2f} seconds.")
+                all_inputs = torch.cat(all_inputs, dim=0)
+                all_predictions = torch.cat(all_predictions, dim=0)
 
-                inputs = np.where(inputs != -100,inputs,llm_tokenizer.pad_token_id)
-                decoded_inputs = llm_tokenizer.batch_decode(inputs,skip_special_tokens=True,clean_up_tokenization_spaces=True)
-                decoded_inputs = [text.replace("\n", "") for text in decoded_inputs]
+                # all_inputs = np.where(all_inputs != -100,all_inputs,llm_tokenizer.pad_token_id)
+                # decoded_inputs = llm_tokenizer.batch_decode(all_inputs,skip_special_tokens=True,clean_up_tokenization_spaces=True)
+                # decoded_inputs = [text.replace("\n", "") for text in decoded_inputs]
 
 
-                # decode predictions bằng seq2seq tokenizer
-                predictions = np.where(predictions != -100, predictions, seq2seq_tokenizer.pad_token_id)
-                decoded_predictions = seq2seq_tokenizer.batch_decode(
-                    predictions,
+                # # decode predictions bằng seq2seq tokenizer
+                # predictions = np.where(all_predictions != -100, all_predictions, seq2seq_tokenizer.pad_token_id)
+                # decoded_predictions = seq2seq_tokenizer.batch_decode(
+                #     predictions,
+                #     skip_special_tokens=True,
+                #     clean_up_tokenization_spaces=True
+                # )
+                # decoded_predictions = [pred.replace("\n", "") for pred in decoded_predictions]
+
+                all_inputs = torch.where(
+                    all_inputs != -100,
+                    all_inputs,
+                    torch.full_like(all_inputs, llm_tokenizer.pad_token_id)
+                )
+
+                decoded_inputs = llm_tokenizer.batch_decode(
+                    all_inputs,
                     skip_special_tokens=True,
                     clean_up_tokenization_spaces=True
                 )
-                decoded_predictions = [pred.replace("\n", "") for pred in decoded_predictions]
-                
+
+                decoded_inputs = [x.replace("\n", "") for x in decoded_inputs]
+
+                # ====== Seq2Seq predictions ======
+                all_predictions = torch.where(
+                    all_predictions != -100,
+                    all_predictions,
+                    torch.full_like(all_predictions, seq2seq_tokenizer.pad_token_id)
+                )
+
+                decoded_predictions = seq2seq_tokenizer.batch_decode(
+                    all_predictions,
+                    skip_special_tokens=True,
+                    clean_up_tokenization_spaces=True
+                )
+
+                decoded_predictions = [x.replace("\n", "") for x in decoded_predictions]
                 # write prediction to csv
                 decode_dir = os.path.join(training_args.output_dir, "decode_result")
                 os.makedirs(decode_dir, exist_ok=True)
