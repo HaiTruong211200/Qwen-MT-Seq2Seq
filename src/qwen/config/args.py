@@ -15,6 +15,10 @@ class ModelArguments:
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
 
+    llm_name_or_path: str = field(
+        metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
+    )
+
     decoder_model_name_or_path: str = field(
         default=None, metadata={"help": "Path to pretrained decoder model or model identifier from huggingface.co/models"}
     )

@@ -1154,11 +1154,15 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
             is_freeze = False
 
             if name.startswith("mt_model.model.encoder"):
-                if ".encoder." in name:
-                    param.requires_grad = False
-                    is_freeze = True
+                param.requires_grad = False
+                is_freeze = True
                 # freeze toàn bộ decoder
-                elif ".decoder." in name and freeze_decoder:
+            elif name.startswith("mt_model.model.decoder") and freeze_decoder:
+                if freeze_cross_attn:
+                    if "encoder_attn" not in name:
+                        param.requires_grad = False
+                        is_freeze = True
+                else:
                     param.requires_grad = False
                     is_freeze = True
                 #     if freeze_cross_attn:

@@ -133,7 +133,7 @@ def set_model_special_tokens(model, model_name_or_path):
     elif "Llama-3" in model_name_or_path:
         model.config.pad_token_id = 128002
         model.generation_config.pad_token_id = 128002
-    elif "Qwen3" in model_name_or_path or "Sailor" in model_name_or_path:
+    elif "Qwen3" in model_name_or_path or "Sailor" in model_name_or_path or "qwen" in model_name_or_path:
         model.config.pad_token_id = 151644
         model.config.bos_token_id = 151643
         model.config.eos_token_id = 151643
@@ -165,7 +165,7 @@ def set_tokenizer_special_tokens(tokenizer, model_name_or_path):
         tokenizer.bos_token = "<|endoftext|>"
     elif "Llama-3" in model_name_or_path:
         tokenizer.pad_token_id = 128002
-    elif "Qwen3" in model_name_or_path or "Sailor" in model_name_or_path:
+    elif "Qwen3" in model_name_or_path or "Sailor" in model_name_or_path or "qwen" in model_name_or_path:
         tokenizer.pad_token_id = 151644
         tokenizer.bos_token_id = 151643
         tokenizer.eos_token_id = 151643

@@ -122,7 +122,7 @@ def main():
     logger.info(f"OT loss lambda: {ot_lambda}, contrastive loss lambda: {contrastive_lambda}")
 
     config = AutoConfig.from_pretrained(
-        model_args.config_name if model_args.config_name else model_args.model_name_or_path,
+        model_args.config_name if model_args.config_name else model_args.llm_name_or_path,
         cache_dir=model_args.cache_dir,
         revision=model_args.model_revision,
         token=model_args.token,
@@ -184,6 +184,26 @@ def main():
             model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True) # only train cross attention and adapter
         # stage 2
         else:
+            decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
+            config.decoder = decoder_config
+            adapter_config = copy.deepcopy(config.to_dict())
+            adapter_config["num_hidden_layers"] = model_args.decoder_layer_num
+            adapter_config["num_encoder_layers"] = config.num_hidden_layers
+            adapter_config["decoder_param_method"] = model_args.decoder_param_method
+            adapter_config["model_method"] = model_args.model_method
+            adapter_config["hidden_size"] = model_args.decoder_hidden_size
+            adapter_config["intermediate_size"] = model_args.decoder_intermediate_size
+            adapter_config["num_attention_heads"] = model_args.decoder_num_attention_heads
+            adapter_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
+            adapter_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
+            adapter_config = Qwen2Config(**adapter_config)
+            config.adapter = adapter_config
+            # set encoder config
+            config.use_cache = False
+            config.is_encoder_decoder = True
+            config.decoder_start_token_id = config.bos_token_id
+            config.encoder_method = model_args.encoder_method
+            config.encoder_layer_num = model_args.encoder_layer_num
             config.contrastive_lambda = model_args.contrastive_lambda
             config.contrastive_temperature = model_args.contrastive_temperature
             if training_args.report_to == "wandb":
@@ -197,9 +217,10 @@ def main():
                 lora_alpha=model_args.lora_alpha,
                 lora_dropout=0.1,
                 target_modules=r"^encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
-                modules_to_save=["connector", "decoder"],
+                modules_to_save=["connector", "mt_model"],
                 task_type=TaskType.SEQ_2_SEQ_LM  
             )
+            model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True)
             model = get_peft_model(model, config)
     else:
         print("Not implement this model yet!")
@@ -319,6 +340,7 @@ def main():
                     shuffle=True,
                     collate_fn=data_collator   
                 )
+
                 for batch in tqdm(dataloader, desc="Generating"):
                     inputs = {
                         k: v.to(model.device)
@@ -326,20 +348,34 @@ def main():
                         if k != "labels"
                     }
 
+
                     with torch.no_grad():
                         generated_ids = model(**inputs)
                         input_ids, decoder_generate_ids_list = generated_ids
 
                         # ✅ giữ tensor, không phá structure
-                        all_inputs.append(input_ids.detach().cpu())
-                        all_predictions.append(decoder_generate_ids_list.detach().cpu())
+                        all_inputs.extend(input_ids.detach().cpu())
+                        all_predictions.extend(decoder_generate_ids_list.detach().cpu())
 
-                        break
 
                 end = time.time()
                 logger.info(f"Prediction completed in {end - start:.2f} seconds.")
-                all_inputs = torch.cat(all_inputs, dim=0)
-                all_predictions = torch.cat(all_predictions, dim=0)
+
+                # all_inputs = np.where(all_inputs != -100,all_inputs,llm_tokenizer.pad_token_id)
+                # all_predictions = np.where(all_predictions != -100,all_predictions,seq2seq_tokenizer.pad_token_id)
+                all_inputs = [x.masked_fill(x == -100, llm_tokenizer.pad_token_id) for x in all_inputs]
+
+                decoded_inputs = [
+                    llm_tokenizer.decode(x, skip_special_tokens=True, clean_up_tokenization_spaces=True).replace("\n", "")
+                    for x in all_inputs
+                ]
+
+                decoded_predictions = [
+                    seq2seq_tokenizer.decode(x, skip_special_tokens=True, clean_up_tokenization_spaces=True).replace("\n", "")
+                    for x in all_predictions
+                ]
+                # all_inputs = torch.cat(all_inputs, dim=0)
+                # all_predictions = torch.cat(all_predictions, dim=0)
 
                 # all_inputs = np.where(all_inputs != -100,all_inputs,llm_tokenizer.pad_token_id)
                 # decoded_inputs = llm_tokenizer.batch_decode(all_inputs,skip_special_tokens=True,clean_up_tokenization_spaces=True)
@@ -355,34 +391,34 @@ def main():
                 # )
                 # decoded_predictions = [pred.replace("\n", "") for pred in decoded_predictions]
 
-                all_inputs = torch.where(
-                    all_inputs != -100,
-                    all_inputs,
-                    torch.full_like(all_inputs, llm_tokenizer.pad_token_id)
-                )
+                # all_inputs = torch.where(
+                #     all_inputs != -100,
+                #     all_inputs,
+                #     torch.full_like(all_inputs, llm_tokenizer.pad_token_id)
+                # )
 
-                decoded_inputs = llm_tokenizer.batch_decode(
-                    all_inputs,
-                    skip_special_tokens=True,
-                    clean_up_tokenization_spaces=True
-                )
+                # decoded_inputs = llm_tokenizer.batch_decode(
+                #     all_inputs,
+                #     skip_special_tokens=True,
+                #     clean_up_tokenization_spaces=True
+                # )
 
-                decoded_inputs = [x.replace("\n", "") for x in decoded_inputs]
+                # decoded_inputs = [x.replace("\n", "") for x in decoded_inputs]
 
                 # ====== Seq2Seq predictions ======
-                all_predictions = torch.where(
-                    all_predictions != -100,
-                    all_predictions,
-                    torch.full_like(all_predictions, seq2seq_tokenizer.pad_token_id)
-                )
+                # all_predictions = torch.where(
+                #     all_predictions != -100,
+                #     all_predictions,
+                #     torch.full_like(all_predictions, seq2seq_tokenizer.pad_token_id)
+                # )
 
-                decoded_predictions = seq2seq_tokenizer.batch_decode(
-                    all_predictions,
-                    skip_special_tokens=True,
-                    clean_up_tokenization_spaces=True
-                )
+                # decoded_predictions = seq2seq_tokenizer.batch_decode(
+                #     all_predictions,
+                #     skip_special_tokens=True,
+                #     clean_up_tokenization_spaces=True
+                # )
 
-                decoded_predictions = [x.replace("\n", "") for x in decoded_predictions]
+                # decoded_predictions = [x.replace("\n", "") for x in decoded_predictions]
                 # write prediction to csv
                 decode_dir = os.path.join(training_args.output_dir, "decode_result")
                 os.makedirs(decode_dir, exist_ok=True)
