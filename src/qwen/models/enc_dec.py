@@ -756,16 +756,16 @@ class QwenEncDecNLLB(QwenPreTrainedModel):
         # need encoder return all hidden state
 
         if labels is not None:
-            if encoder_outputs is None:
-                encoder_outputs = self.encoder(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    inputs_embeds=inputs_embeds,
-                    use_cache=False,
-                    output_attentions=output_attentions,
-                    output_hidden_states=True,
-                    return_dict=return_dict,
-                )
+            # if encoder_outputs is None:
+            encoder_outputs = self.encoder(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                inputs_embeds=inputs_embeds,
+                use_cache=False,
+                output_attentions=output_attentions,
+                output_hidden_states=True,
+                return_dict=return_dict,
+            )
 
             # a tuple of length layer_num + 1 
             encoder_all_hidden_states = encoder_outputs.hidden_states
@@ -1137,7 +1137,7 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
                 param.requires_grad = False
                 is_freeze = True
 
-            if name.startswith("mt_model.lm_head") and freeze_decoder:
+            if name.startswith("mt_model.lm_head"):
                 param.requires_grad = True
                 is_freeze = False
 
