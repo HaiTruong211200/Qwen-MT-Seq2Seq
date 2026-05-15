@@ -180,8 +180,9 @@ def main():
             print("Model Init config:", config)
             state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path, seq2seq_model_name_or_path=model_args.decoder_model_name_or_path)
             model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
-            model.freeze_llm() # frozen LLM
-            model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True) # only train cross attention and adapter
+            # model.freeze_llm() # frozen LLM
+            # model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True) # only train cross attention and adapter
+            model.freeze_model(freeze_llm=True, freeze_decoder=True, freeze_decoder_cross_attn=True)
         # stage 2
         else:
             decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
@@ -211,8 +212,10 @@ def main():
                     project='Low-Resource-Machine-Translation',
                     name='SailorED-sft'
                 )
-            model = QwenCrossAttentionEncDecNLLB.from_pretrained(model_args.model_name_or_path, config=config)
-            config = LoraConfig(
+            state_dict = utils.load_checkpoint(model_args.model_name_or_path)
+            model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict)
+            # model = QwenCrossAttentionEncDecNLLB.from_pretrained(model_args.model_name_or_path)
+            lora_config = LoraConfig(
                 r=model_args.lora_r,
                 lora_alpha=model_args.lora_alpha,
                 lora_dropout=0.1,
@@ -220,8 +223,8 @@ def main():
                 modules_to_save=["connector", "mt_model"],
                 task_type=TaskType.SEQ_2_SEQ_LM  
             )
-            model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True)
-            model = get_peft_model(model, config)
+            # model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True)
+            model = get_peft_model(model, lora_config)
     else:
         print("Not implement this model yet!")
         exit()
