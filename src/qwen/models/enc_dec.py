@@ -1124,14 +1124,38 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
             config.encoder = Qwen2Config(**config.encoder)
         super().__init__(config)
 
-    def freeze_llm(self):
+    def freeze_model(self, freeze_llm=True, freeze_decoder=True, freeze_decoder_cross_attn=True):
         for name, param in self.named_parameters():
             is_freeze = False
 
             ## freeze the whole encoder except connector
-            if name.startswith("encoder.") and not name.startswith("encoder.connector") and not name.startswith("encoder.fuse_model"):
+            if freeze_llm:
+                if name.startswith("encoder.") and not name.startswith("encoder.connector") and not name.startswith("encoder.fuse_model"):
+                    param.requires_grad = False
+                    is_freeze = True
+            if name.startswith("mt_model.model.shared") and freeze_decoder:
                 param.requires_grad = False
                 is_freeze = True
+
+            if name.startswith("mt_model.lm_head") and freeze_decoder:
+                param.requires_grad = True
+                is_freeze = False
+
+            
+
+            if name.startswith("mt_model.model.encoder"):
+                param.requires_grad = False
+                is_freeze = True
+                # freeze toàn bộ decoder
+            elif name.startswith("mt_model.model.decoder") and freeze_decoder:
+                if not freeze_decoder_cross_attn:
+                    if "encoder_attn" not in name:
+                        param.requires_grad = False
+                        is_freeze = True
+                else:
+                    param.requires_grad = False
+                    is_freeze = True
+
             if torch.cuda.current_device() == 0 and is_freeze:
                 print(f"freeze ==> {name}")
         print_train_module(self)

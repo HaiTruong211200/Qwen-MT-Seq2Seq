@@ -104,7 +104,7 @@ def make_model_state_dict(model_path, seq2seq_model_name_or_path):
 
     return new_state
 
-# def make_model_state_dict(model_path):   
+# def make_model_state_dict_ver2(model_path):   
 #     ## get encoder state and lm_head 
 #     state = load_checkpoint(model_path)
 #     new_state = {}
