@@ -43,13 +43,68 @@ from transformers import (
 )
 from transformers.trainer_utils import get_last_checkpoint
 
-from qwen.models.enc_dec import QwenCrossAttentionEncDec, QwenCrossAttentionEncDecNLLB
+from qwen.models.enc_dec import QwenCrossAttentionEncDec, QwenCrossAttentionEncDecNLLB, print_train_module
 from qwen.config.args import DataTrainingArguments, ModelArguments
 
 from qwen.utils.check_weight import check_weight
 from qwen.utils.initialize_model_weight import manual_fix_connector_weights
 
 logger = logging.getLogger(__name__)
+
+from transformers import TrainerCallback
+import torch
+
+
+class WeightDebugCallback(TrainerCallback):
+
+    def __init__(self, target_prefix):
+
+        self.target_prefix = target_prefix
+        self.before = {}
+
+    def on_train_begin(self, args, state, control, **kwargs):
+
+        model = kwargs["model"]
+
+        for name, param in model.named_parameters():
+
+            if name.startswith(self.target_prefix):
+
+                self.before[name] = (
+                    param.detach().clone()
+                )
+
+    def on_step_end(self, args, state, control, **kwargs):
+
+        model = kwargs["model"]
+
+        print("\n===== DEBUG =====")
+
+        for name, param in model.named_parameters():
+
+            if name.startswith(self.target_prefix):
+
+                print(f"\n{name}")
+
+                print(
+                    "requires_grad:",
+                    param.requires_grad
+                )
+
+                if param.grad is None:
+                    print("grad: NONE")
+
+                else:
+                    print(
+                        "grad mean:",
+                        param.grad.abs().mean().item()
+                    )
+
+                diff = (
+                    self.before[name] - param.detach()
+                ).abs().mean().item()
+
+                print("weight update:", diff)
 
 def main():
     parser = HfArgumentParser((ModelArguments, DataTrainingArguments, Seq2SeqTrainingArguments))
@@ -183,6 +238,17 @@ def main():
             # model.freeze_llm() # frozen LLM
             # model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True) # only train cross attention and adapter
             model.freeze_model(freeze_llm=True, freeze_decoder=True, freeze_decoder_cross_attn=True)
+            lora_config = LoraConfig(
+                r=model_args.lora_r,
+                lora_alpha=model_args.lora_alpha,
+                lora_dropout=0.1,
+                target_modules=r"^encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
+                modules_to_save=["connector"],
+                task_type=TaskType.SEQ_2_SEQ_LM  
+            )
+            # model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True)
+            model = get_peft_model(model, lora_config)
+            print_train_module(model)
         # stage 2
         else:
             decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
@@ -244,7 +310,38 @@ def main():
         train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
         # print(train_raw_data.keys())
         train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_data, pairs, llm_tokenizer, seq2seq_tokenizer, data_args, training_args)
-    
+        # print(">>> DEBUG: KIỂM TRA MẪU DATASET SAU KHI PROCESS")
+        
+        # try:
+        #     # Lấy 1 mẫu đầu tiên từ tập train
+        #     sample = train_datasets[0]
+            
+        #     # 1. Kiểm tra các Keys (Quan trọng nhất)
+        #     print(f"👉 Các keys có trong dataset: {list(sample.keys())}")
+            
+        #     # 2. Check xem có 'labels' không?
+        #     if "labels" not in sample:
+        #         print("❌ LỖI NGHIÊM TRỌNG: Không thấy cột 'labels'. Collator sẽ không tạo decoder_input_ids!")
+        #         # Thử đoán xem nó đang tên là gì
+        #         print(f"   (Có thể nó đang tên là 'target', 'translation' hoặc 'output'?)")
+        #     else:
+        #         print("✅ Đã tìm thấy cột 'labels'.")
+
+        #     # 3. In thử nội dung
+        #     print("-" * 30)
+        #     print(f"Input IDs (len={len(sample['input_ids'])}): {sample['input_ids']} ...")
+        #     print(f"Input Text:  {llm_tokenizer.decode(sample['input_ids'], skip_special_tokens=True)}")
+            
+        #     if "labels" in sample:
+        #         print("-" * 30)
+        #         print(f"Labels IDs (len={len(sample['labels'])}): {sample['labels']} ...")
+        #         print(f"Labels Text: {seq2seq_tokenizer.decode(sample['labels'], skip_special_tokens=True)}")
+            
+        # except Exception as e:
+        #     print(f"❌ Không thể in mẫu dataset: {e}")
+            
+        # print("!"*40 + "\n")
+
     ## Data collator
     label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else llm_tokenizer.pad_token_id
     if data_args.pad_to_max_length:
@@ -276,6 +373,8 @@ def main():
     check_weight(model)
 
     
+
+    
     trainer = Seq2SeqTrainer(
         model=model,
         args=training_args,
@@ -290,6 +389,24 @@ def main():
     logger.info(model)
     if training_args.do_train:
         utils.print_trainable_parameters(model)
+
+    trainer.create_optimizer()
+
+    optimizer_params = set()
+
+    for group in trainer.optimizer.param_groups:
+        for p in group["params"]:
+            optimizer_params.add(id(p))
+
+
+    for name, param in model.named_parameters():
+
+        if name.startswith("encoder.connector.post_encoder"):
+
+            print(
+                name,
+                id(param) in optimizer_params
+            )
 
     # Training
     if training_args.do_train:

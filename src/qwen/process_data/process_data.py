@@ -399,16 +399,16 @@ def process_mmt_data_for_seq2seq(train_raw_data, valid_raw_data, test_raw_data, 
                 prompt, tgt_txt = get_prompt(source_lang, target_lang, example)
                 inputs.append(prompt)
                 targets.append(tgt_txt)
-            if do_data_reverse(pairs, example):
-                prompt, tgt_txt = get_prompt(target_lang, source_lang, example)
-                inputs.append(prompt)
-                targets.append(tgt_txt)
+            # if do_data_reverse(pairs, example):
+            #     prompt, tgt_txt = get_prompt(target_lang, source_lang, example)
+            #     inputs.append(prompt)
+            #     targets.append(tgt_txt)
         # print(("\n\n"+"="*100+"\n\n").join([f"{x}\n{y}" for x,y in zip(inputs, targets)]))
         
         # add_special_tokens is not matter for the source
         model_inputs = tokenizer(inputs, max_length=data_args.max_source_length, padding=False, truncation=True)
         labels = tokenizer(text_target=targets, max_length=data_args.max_target_length, padding=False, truncation=True)
-        check_add_eos(labels, tokenizer)
+        # check_add_eos(labels, tokenizer)
         model_inputs["labels"] = labels["input_ids"]
     
         return model_inputs
@@ -839,11 +839,11 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
                 targets.append(tgt_txt)
                 tgt_langs.append(tgt_lang)
 
-            if do_data_reverse(pairs, example):
-                prompt, tgt_txt = get_prompt(tgt_lang, src_lang, example)
-                inputs.append(prompt)
-                targets.append(tgt_txt)
-                tgt_langs.append(src_lang)
+            # if do_data_reverse(pairs, example):
+            #     prompt, tgt_txt = get_prompt(tgt_lang, src_lang, example)
+            #     inputs.append(prompt)
+            #     targets.append(tgt_txt)
+            #     tgt_langs.append(src_lang)
         for target in targets:
             if target == None:
                 print("Detect None target, replace it with empty string!")
@@ -874,7 +874,7 @@ def process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_d
                 TOKENIZER_LANG_TABLE[tgt_lang]
             )
 
-            if ids[0] == seq2seq_tokenizer.convert_tokens_to_ids("eng_Latn"):
+            if ids[0] == bos_id:
                 ids[0] = bos_id
                 mask = [1] + mask
 

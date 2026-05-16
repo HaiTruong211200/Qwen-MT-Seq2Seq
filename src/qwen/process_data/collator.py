@@ -168,15 +168,16 @@ class DataCollatorForQwenNLLB:
         if return_tensors is None:
             return_tensors = self.return_tensors
 
-        pad_token_id = self.llm_tokenizer.pad_token_id
+        encoder_pad_token_id = self.llm_tokenizer.pad_token_id
+        decoder_pad_token_id = self.seq2seq_tokenizer.pad_token_id
         input_ids = [feature["input_ids"] for feature in features]
         max_length = max(len(l) for l in input_ids)
         if self.pad_to_multiple_of is not None and self.pad_to_multiple_of > 0:
             max_length = (max_length + self.pad_to_multiple_of - 1) // self.pad_to_multiple_of * self.pad_to_multiple_of
 
         # left padding
-        input_ids = [[pad_token_id]*(max_length-len(ids)) + ids for ids in input_ids]
-        attention_mask = [[0 if x == pad_token_id else 1 for x in y] for y in input_ids]
+        input_ids = [[encoder_pad_token_id]*(max_length-len(ids)) + ids for ids in input_ids]
+        attention_mask = [[0 if x == encoder_pad_token_id else 1 for x in y] for y in input_ids]
         # print(features)
 
         labels = [feature["labels"] for feature in features] if "labels" in features[0].keys() else None
@@ -213,12 +214,12 @@ class DataCollatorForQwenNLLB:
             max_length = (max_length + self.pad_to_multiple_of - 1) // self.pad_to_multiple_of * self.pad_to_multiple_of
 
 
-        decoder_input_ids = [ids + [pad_token_id]*(max_length-len(ids)) for ids in decoder_input_ids]
-        decoder_attention_mask = [[0 if x == pad_token_id else 1 for x in y] for y in decoder_input_ids]
+        decoder_input_ids = [ids + [decoder_pad_token_id]*(max_length-len(ids)) for ids in decoder_input_ids]
+        decoder_attention_mask = [[0 if x == decoder_pad_token_id else 1 for x in y] for y in decoder_input_ids]
 
         ## padding labels
-        labels = [label + [pad_token_id]*(max_length-len(label)) for label in labels]
-        labels = [[self.label_pad_token_id if x == pad_token_id else x for x in y] for y in labels]
+        labels = [label + [self.label_pad_token_id]*(max_length-len(label)) for label in labels]
+        labels = [[self.label_pad_token_id if x == self.label_pad_token_id else x for x in y] for y in labels]
 
         # print(f"Collator: {decoder_input_ids}")
 
