@@ -285,216 +285,216 @@ def main():
     
     ## Preprocessing data
     # Tokenize dataset
-    # if data_args.mmt_data_path is not None:
-    #     train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
-    #     # print(train_raw_data.keys())
-    #     train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_data, pairs, llm_tokenizer, seq2seq_tokenizer, data_args, training_args)
-    #     # print(">>> DEBUG: KIỂM TRA MẪU DATASET SAU KHI PROCESS")
+    if data_args.mmt_data_path is not None:
+        train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
+        # print(train_raw_data.keys())
+        train_datasets, eval_datasets, test_datasets = process_mmt_data_for_seq2seq_ver2(train_raw_data, valid_raw_data, test_raw_data, pairs, llm_tokenizer, seq2seq_tokenizer, data_args, training_args)
+        # print(">>> DEBUG: KIỂM TRA MẪU DATASET SAU KHI PROCESS")
         
-    #     # try:
-    #     #     # Lấy 1 mẫu đầu tiên từ tập train
-    #     #     sample = train_datasets[0]
+        # try:
+        #     # Lấy 1 mẫu đầu tiên từ tập train
+        #     sample = train_datasets[0]
             
-    #     #     # 1. Kiểm tra các Keys (Quan trọng nhất)
-    #     #     print(f"👉 Các keys có trong dataset: {list(sample.keys())}")
+        #     # 1. Kiểm tra các Keys (Quan trọng nhất)
+        #     print(f"👉 Các keys có trong dataset: {list(sample.keys())}")
             
-    #     #     # 2. Check xem có 'labels' không?
-    #     #     if "labels" not in sample:
-    #     #         print("❌ LỖI NGHIÊM TRỌNG: Không thấy cột 'labels'. Collator sẽ không tạo decoder_input_ids!")
-    #     #         # Thử đoán xem nó đang tên là gì
-    #     #         print(f"   (Có thể nó đang tên là 'target', 'translation' hoặc 'output'?)")
-    #     #     else:
-    #     #         print("✅ Đã tìm thấy cột 'labels'.")
+        #     # 2. Check xem có 'labels' không?
+        #     if "labels" not in sample:
+        #         print("❌ LỖI NGHIÊM TRỌNG: Không thấy cột 'labels'. Collator sẽ không tạo decoder_input_ids!")
+        #         # Thử đoán xem nó đang tên là gì
+        #         print(f"   (Có thể nó đang tên là 'target', 'translation' hoặc 'output'?)")
+        #     else:
+        #         print("✅ Đã tìm thấy cột 'labels'.")
 
-    #     #     # 3. In thử nội dung
-    #     #     print("-" * 30)
-    #     #     print(f"Input IDs (len={len(sample['input_ids'])}): {sample['input_ids']} ...")
-    #     #     print(f"Input Text:  {llm_tokenizer.decode(sample['input_ids'], skip_special_tokens=True)}")
+        #     # 3. In thử nội dung
+        #     print("-" * 30)
+        #     print(f"Input IDs (len={len(sample['input_ids'])}): {sample['input_ids']} ...")
+        #     print(f"Input Text:  {llm_tokenizer.decode(sample['input_ids'], skip_special_tokens=True)}")
             
-    #     #     if "labels" in sample:
-    #     #         print("-" * 30)
-    #     #         print(f"Labels IDs (len={len(sample['labels'])}): {sample['labels']} ...")
-    #     #         print(f"Labels Text: {seq2seq_tokenizer.decode(sample['labels'], skip_special_tokens=True)}")
+        #     if "labels" in sample:
+        #         print("-" * 30)
+        #         print(f"Labels IDs (len={len(sample['labels'])}): {sample['labels']} ...")
+        #         print(f"Labels Text: {seq2seq_tokenizer.decode(sample['labels'], skip_special_tokens=True)}")
             
-    #     # except Exception as e:
-    #     #     print(f"❌ Không thể in mẫu dataset: {e}")
+        # except Exception as e:
+        #     print(f"❌ Không thể in mẫu dataset: {e}")
             
-    #     # print("!"*40 + "\n")
+        # print("!"*40 + "\n")
 
-    # ## Data collator
-    # label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else llm_tokenizer.pad_token_id
-    # data_collator = collator.DataCollatorForQwenNLLB(
-    #     llm_tokenizer,
-    #     seq2seq_tokenizer,
-    #     model=model,
-    #     label_pad_token_id=label_pad_token_id,
-    #     pad_to_multiple_of=8 if training_args.fp16 else None
-    # )
+    ## Data collator
+    label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else llm_tokenizer.pad_token_id
+    data_collator = collator.DataCollatorForQwenNLLB(
+        llm_tokenizer,
+        seq2seq_tokenizer,
+        model=model,
+        label_pad_token_id=label_pad_token_id,
+        pad_to_multiple_of=8 if training_args.fp16 else None
+    )
 
-    # optimizer = None
+    optimizer = None
 
-    # if model_args.run_mode == "init":
-    #     manual_fix_connector_weights(model, target_dim=model.config.decoder.hidden_size)
-    # check_weight(model)
+    if model_args.run_mode == "init":
+        manual_fix_connector_weights(model, target_dim=model.config.decoder.hidden_size)
+    check_weight(model)
 
-    # trainer = Seq2SeqTrainer(
-    #     model=model,
-    #     args=training_args,
-    #     train_dataset=train_datasets if training_args.do_train else None,
-    #     eval_dataset=eval_datasets if training_args.do_eval else None,
-    #     tokenizer=llm_tokenizer,
-    #     data_collator=data_collator,
-    #     callbacks=[EarlyStoppingCallback(early_stopping_patience=model_args.patience)],
-    #     optimizers=(optimizer, None)
-    # )
+    trainer = Seq2SeqTrainer(
+        model=model,
+        args=training_args,
+        train_dataset=train_datasets if training_args.do_train else None,
+        eval_dataset=eval_datasets if training_args.do_eval else None,
+        tokenizer=llm_tokenizer,
+        data_collator=data_collator,
+        callbacks=[EarlyStoppingCallback(early_stopping_patience=model_args.patience)],
+        optimizers=(optimizer, None)
+    )
 
-    # logger.info(model)
-    # if training_args.do_train:
-    #     utils.print_trainable_parameters(model)
+    logger.info(model)
+    if training_args.do_train:
+        utils.print_trainable_parameters(model)
 
-    # # Training
-    # if training_args.do_train:
-    #     checkpoint = None
-    #     if training_args.resume_from_checkpoint:
-    #         checkpoint = training_args.resume_from_checkpoint
-    #     elif last_checkpoint is not None:
-    #         checkpoint = last_checkpoint
-    #     train_result = trainer.train(resume_from_checkpoint=None)
-    #     model = model.to(torch.bfloat16)
-    #     trainer.save_model()  # Saves the tokenizer too for easy upload
+    # Training
+    if training_args.do_train:
+        checkpoint = None
+        if training_args.resume_from_checkpoint:
+            checkpoint = training_args.resume_from_checkpoint
+        elif last_checkpoint is not None:
+            checkpoint = last_checkpoint
+        train_result = trainer.train(resume_from_checkpoint=None)
+        model = model.to(torch.bfloat16)
+        trainer.save_model()  # Saves the tokenizer too for easy upload
 
-    #     metrics = train_result.metrics
-    #     max_train_samples = (
-    #         data_args.max_train_samples if data_args.max_train_samples is not None else len(train_datasets)
-    #     )
-    #     metrics["train_samples"] = min(max_train_samples, len(train_datasets))
+        metrics = train_result.metrics
+        max_train_samples = (
+            data_args.max_train_samples if data_args.max_train_samples is not None else len(train_datasets)
+        )
+        metrics["train_samples"] = min(max_train_samples, len(train_datasets))
 
-    #     trainer.log_metrics("train", metrics)
-    #     trainer.save_metrics("train", metrics)
-    #     trainer.save_state()
-    # if training_args.report_to == "wandb":
-    #     wandb.finish()
+        trainer.log_metrics("train", metrics)
+        trainer.save_metrics("train", metrics)
+        trainer.save_state()
+    if training_args.report_to == "wandb":
+        wandb.finish()
 
-    # num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
+    num_beams = data_args.num_beams if data_args.num_beams is not None else training_args.generation_num_beams
 
-    # # model.to("cuda:0")
+    # model.to("cuda:0")
 
-    # # Generate predictions for test set
-    # predict_tasks = data_args.predict_task.split(",")
-    # if training_args.do_predict:
-    #     lg_pairs = sorted(test_datasets.keys())
-    #     for lg_pair in lg_pairs:
-    #         cur_test_dataset = test_datasets[lg_pair]
-    #         src_lang, tgt_lang = lg_pair.split("-")
-    #         for task in cur_test_dataset.keys():
-    #             print(f"\n\n{'='*30}\nPredicting for language pair: {lg_pair}, task: {task}\n{'='*30}")
-    #             if task not in predict_tasks:
-    #                 logger.info(f"skip predict {lg_pair}.{task}")
-    #                 continue
-    #             task_test_dataset = cur_test_dataset[task]
-    #             start = time.time()
-    #             logger.info(f"*** Prediction for {lg_pair}.{task} ***")
+    # Generate predictions for test set
+    predict_tasks = data_args.predict_task.split(",")
+    if training_args.do_predict:
+        lg_pairs = sorted(test_datasets.keys())
+        for lg_pair in lg_pairs:
+            cur_test_dataset = test_datasets[lg_pair]
+            src_lang, tgt_lang = lg_pair.split("-")
+            for task in cur_test_dataset.keys():
+                print(f"\n\n{'='*30}\nPredicting for language pair: {lg_pair}, task: {task}\n{'='*30}")
+                if task not in predict_tasks:
+                    logger.info(f"skip predict {lg_pair}.{task}")
+                    continue
+                task_test_dataset = cur_test_dataset[task]
+                start = time.time()
+                logger.info(f"*** Prediction for {lg_pair}.{task} ***")
 
-    #             batch_size = training_args.per_device_eval_batch_size
-    #             all_inputs = []
-    #             all_predictions = []
-    #             dataloader = DataLoader(
-    #                 task_test_dataset,
-    #                 batch_size=batch_size,
-    #                 shuffle=False,
-    #                 collate_fn=data_collator   
-    #             )
+                batch_size = training_args.per_device_eval_batch_size
+                all_inputs = []
+                all_predictions = []
+                dataloader = DataLoader(
+                    task_test_dataset,
+                    batch_size=batch_size,
+                    shuffle=False,
+                    collate_fn=data_collator   
+                )
 
-    #             for batch in tqdm(dataloader, desc="Generating"):
-    #                 inputs = {
-    #                     k: v.to(model.device)
-    #                     for k, v in batch.items()
-    #                     if k != "labels"
-    #                 }
-
-
-    #                 with torch.no_grad():
-    #                     generated_ids = model(**inputs)
-    #                     input_ids, decoder_generate_ids_list = generated_ids
-
-    #                     # ✅ giữ tensor, không phá structure
-    #                     all_inputs.extend(input_ids.detach().cpu())
-    #                     all_predictions.extend(decoder_generate_ids_list.detach().cpu())
+                for batch in tqdm(dataloader, desc="Generating"):
+                    inputs = {
+                        k: v.to(model.device)
+                        for k, v in batch.items()
+                        if k != "labels"
+                    }
 
 
-    #             end = time.time()
-    #             logger.info(f"Prediction completed in {end - start:.2f} seconds.")
+                    with torch.no_grad():
+                        generated_ids = model(**inputs)
+                        input_ids, decoder_generate_ids_list = generated_ids
 
-    #             # all_inputs = np.where(all_inputs != -100,all_inputs,llm_tokenizer.pad_token_id)
-    #             # all_predictions = np.where(all_predictions != -100,all_predictions,seq2seq_tokenizer.pad_token_id)
-    #             all_inputs = [x.masked_fill(x == -100, llm_tokenizer.pad_token_id) for x in all_inputs]
-
-    #             decoded_inputs = [
-    #                 llm_tokenizer.decode(x, skip_special_tokens=True, clean_up_tokenization_spaces=True).replace("\n", "")
-    #                 for x in all_inputs
-    #             ]
-
-    #             decoded_predictions = [
-    #                 seq2seq_tokenizer.decode(x, skip_special_tokens=True, clean_up_tokenization_spaces=True).replace("\n", "")
-    #                 for x in all_predictions
-    #             ]
-    #             # all_inputs = torch.cat(all_inputs, dim=0)
-    #             # all_predictions = torch.cat(all_predictions, dim=0)
-
-    #             # all_inputs = np.where(all_inputs != -100,all_inputs,llm_tokenizer.pad_token_id)
-    #             # decoded_inputs = llm_tokenizer.batch_decode(all_inputs,skip_special_tokens=True,clean_up_tokenization_spaces=True)
-    #             # decoded_inputs = [text.replace("\n", "") for text in decoded_inputs]
+                        # ✅ giữ tensor, không phá structure
+                        all_inputs.extend(input_ids.detach().cpu())
+                        all_predictions.extend(decoder_generate_ids_list.detach().cpu())
 
 
-    #             # # decode predictions bằng seq2seq tokenizer
-    #             # predictions = np.where(all_predictions != -100, all_predictions, seq2seq_tokenizer.pad_token_id)
-    #             # decoded_predictions = seq2seq_tokenizer.batch_decode(
-    #             #     predictions,
-    #             #     skip_special_tokens=True,
-    #             #     clean_up_tokenization_spaces=True
-    #             # )
-    #             # decoded_predictions = [pred.replace("\n", "") for pred in decoded_predictions]
+                end = time.time()
+                logger.info(f"Prediction completed in {end - start:.2f} seconds.")
 
-    #             # all_inputs = torch.where(
-    #             #     all_inputs != -100,
-    #             #     all_inputs,
-    #             #     torch.full_like(all_inputs, llm_tokenizer.pad_token_id)
-    #             # )
+                # all_inputs = np.where(all_inputs != -100,all_inputs,llm_tokenizer.pad_token_id)
+                # all_predictions = np.where(all_predictions != -100,all_predictions,seq2seq_tokenizer.pad_token_id)
+                all_inputs = [x.masked_fill(x == -100, llm_tokenizer.pad_token_id) for x in all_inputs]
 
-    #             # decoded_inputs = llm_tokenizer.batch_decode(
-    #             #     all_inputs,
-    #             #     skip_special_tokens=True,
-    #             #     clean_up_tokenization_spaces=True
-    #             # )
+                decoded_inputs = [
+                    llm_tokenizer.decode(x, skip_special_tokens=True, clean_up_tokenization_spaces=True).replace("\n", "")
+                    for x in all_inputs
+                ]
 
-    #             # decoded_inputs = [x.replace("\n", "") for x in decoded_inputs]
+                decoded_predictions = [
+                    seq2seq_tokenizer.decode(x, skip_special_tokens=True, clean_up_tokenization_spaces=True).replace("\n", "")
+                    for x in all_predictions
+                ]
+                # all_inputs = torch.cat(all_inputs, dim=0)
+                # all_predictions = torch.cat(all_predictions, dim=0)
 
-    #             # ====== Seq2Seq predictions ======
-    #             # all_predictions = torch.where(
-    #             #     all_predictions != -100,
-    #             #     all_predictions,
-    #             #     torch.full_like(all_predictions, seq2seq_tokenizer.pad_token_id)
-    #             # )
+                # all_inputs = np.where(all_inputs != -100,all_inputs,llm_tokenizer.pad_token_id)
+                # decoded_inputs = llm_tokenizer.batch_decode(all_inputs,skip_special_tokens=True,clean_up_tokenization_spaces=True)
+                # decoded_inputs = [text.replace("\n", "") for text in decoded_inputs]
 
-    #             # decoded_predictions = seq2seq_tokenizer.batch_decode(
-    #             #     all_predictions,
-    #             #     skip_special_tokens=True,
-    #             #     clean_up_tokenization_spaces=True
-    #             # )
 
-    #             # decoded_predictions = [x.replace("\n", "") for x in decoded_predictions]
-    #             # write prediction to csv
-    #             decode_dir = os.path.join(training_args.output_dir, "decode_result")
-    #             os.makedirs(decode_dir, exist_ok=True)
-    #             predic_file_name = f"test-{src_lang}-{tgt_lang}-{task}"
-    #             if task == "general_trans":
-    #                 predic_file_name += f"-{data_args.test_dataname}"
-    #             output_prediction_file = os.path.join(decode_dir, predic_file_name + ".csv")
-    #             with open(output_prediction_file, "w", encoding="utf-8", newline="") as writer:
-    #                 csv_writer = csv.writer(writer)
-    #                 csv_writer.writerow(["input", "prediction"])
-    #                 for src, pred in zip(decoded_inputs, decoded_predictions):
-    #                     csv_writer.writerow([src, pred])
+                # # decode predictions bằng seq2seq tokenizer
+                # predictions = np.where(all_predictions != -100, all_predictions, seq2seq_tokenizer.pad_token_id)
+                # decoded_predictions = seq2seq_tokenizer.batch_decode(
+                #     predictions,
+                #     skip_special_tokens=True,
+                #     clean_up_tokenization_spaces=True
+                # )
+                # decoded_predictions = [pred.replace("\n", "") for pred in decoded_predictions]
+
+                # all_inputs = torch.where(
+                #     all_inputs != -100,
+                #     all_inputs,
+                #     torch.full_like(all_inputs, llm_tokenizer.pad_token_id)
+                # )
+
+                # decoded_inputs = llm_tokenizer.batch_decode(
+                #     all_inputs,
+                #     skip_special_tokens=True,
+                #     clean_up_tokenization_spaces=True
+                # )
+
+                # decoded_inputs = [x.replace("\n", "") for x in decoded_inputs]
+
+                # ====== Seq2Seq predictions ======
+                # all_predictions = torch.where(
+                #     all_predictions != -100,
+                #     all_predictions,
+                #     torch.full_like(all_predictions, seq2seq_tokenizer.pad_token_id)
+                # )
+
+                # decoded_predictions = seq2seq_tokenizer.batch_decode(
+                #     all_predictions,
+                #     skip_special_tokens=True,
+                #     clean_up_tokenization_spaces=True
+                # )
+
+                # decoded_predictions = [x.replace("\n", "") for x in decoded_predictions]
+                # write prediction to csv
+                decode_dir = os.path.join(training_args.output_dir, "decode_result")
+                os.makedirs(decode_dir, exist_ok=True)
+                predic_file_name = f"test-{src_lang}-{tgt_lang}-{task}"
+                if task == "general_trans":
+                    predic_file_name += f"-{data_args.test_dataname}"
+                output_prediction_file = os.path.join(decode_dir, predic_file_name + ".csv")
+                with open(output_prediction_file, "w", encoding="utf-8", newline="") as writer:
+                    csv_writer = csv.writer(writer)
+                    csv_writer.writerow(["input", "prediction"])
+                    for src, pred in zip(decoded_inputs, decoded_predictions):
+                        csv_writer.writerow([src, pred])
 
     
 
