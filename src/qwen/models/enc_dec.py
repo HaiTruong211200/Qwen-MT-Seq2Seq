@@ -1132,11 +1132,10 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
         # freeze mt decoder
         if freeze_decoder:
             for name, param in self.mt_model.get_decoder().named_parameters():
-                if freeze_decoder_cross_attn:
-                    param.requires_grad = False
-                else:
-                    if "encoder_attn" not in name :
-                        param.requires_grad = False
+                param.requires_grad = False
+                if 'encoder_attn' in name and not freeze_decoder_cross_attn:      # train decoder cross-attention
+                    param.requires_grad = True
+                    print(f"Unfroze: {name}")
 
         # freeze mt lm head
         if freeze_mt_lm_head:
@@ -1147,7 +1146,7 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
         if freeze_llm:
             for name, param in self.encoder.named_parameters():
                 is_freeze = False
-                if "connector" not in name and "fuse_model" not in name:
+                if "connector" not in name and "fuse_model" not in name and "embed_tokens" not in name:
                     param.requires_grad = False
                     is_freeze = True
                 # if torch.cuda.current_device() == 0 and is_freeze:
