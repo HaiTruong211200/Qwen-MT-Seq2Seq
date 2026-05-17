@@ -98,6 +98,13 @@ class ModelArguments:
     ot_num_iters: int = field(default=20)
     ot_eps: float = field(default=1e-8)
 
+    freeze_llm: bool = field(default=True)
+    freeze_decoder: bool = field(default=True)
+    freeze_decoder_cross_attn: bool = field(default=True) 
+    freeze_mt_lm_head: bool = field(default=True)
+    train_lora_llm: bool = field(default=False) 
+    train_lora_mt: bool = field(default=False)
+
 @dataclass
 class DataTrainingArguments:
     """

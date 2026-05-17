@@ -1124,41 +1124,71 @@ class QwenCrossAttentionEncDecNLLB(QwenEncDecNLLB, GenerationMixin):
             config.encoder = Qwen2Config(**config.encoder)
         super().__init__(config)
 
-    def freeze_model(self, freeze_llm=True, freeze_decoder=True, freeze_decoder_cross_attn=True):
-        for name, param in self.named_parameters():
-            is_freeze = False
+    def freeze_model(self, freeze_llm=True, freeze_decoder=True, freeze_decoder_cross_attn=True, freeze_mt_lm_head=True):
+        # freeze mt encoder
+        for name, param in self.mt_model.get_encoder().named_parameters():
+            param.requires_grad = False
+        
+        # freeze mt decoder
+        if freeze_decoder:
+            for name, param in self.mt_model.get_decoder().named_parameters():
+                if freeze_decoder_cross_attn:
+                    param.requires_grad = False
+                else:
+                    if "encoder_attn" not in name :
+                        param.requires_grad = False
 
-            ## freeze the whole encoder except connector
-            if freeze_llm:
-                if name.startswith("encoder.") and not name.startswith("encoder.connector") and not name.startswith("encoder.fuse_model"):
+        # freeze mt lm head
+        if freeze_mt_lm_head:
+            for name, param in self.mt_model.lm_head.named_parameters():
+                param.requires_grad = False
+
+        # freeze llm
+        if freeze_llm:
+            for name, param in self.encoder.named_parameters():
+                is_freeze = False
+                if "connector" not in name and "fuse_model" not in name:
                     param.requires_grad = False
                     is_freeze = True
-            if name.startswith("mt_model.model.shared") and freeze_decoder:
-                param.requires_grad = False
-                is_freeze = True
+                # if torch.cuda.current_device() == 0 and is_freeze:
+                #     print(f"freeze ==> {name}")
 
-            if name.startswith("mt_model.lm_head"):
-                param.requires_grad = True
-                is_freeze = False
+        
+
+        # for name, param in self.named_parameters():
+        #     is_freeze = False
+
+        #     ## freeze the whole encoder except connector
+        #     if freeze_llm:
+        #         if name.startswith("encoder.") and not name.startswith("encoder.connector") and not name.startswith("encoder.fuse_model"):
+        #             param.requires_grad = False
+        #             is_freeze = True
+        #     if name.startswith("mt_model.model.shared") and freeze_decoder:
+        #         param.requires_grad = False
+        #         is_freeze = True
+
+        #     if name.startswith("mt_model.lm_head"):
+        #         param.requires_grad = True
+        #         is_freeze = False
 
             
 
-            if name.startswith("mt_model.model.encoder"):
-                param.requires_grad = False
-                is_freeze = True
-                # freeze toàn bộ decoder
-            elif name.startswith("mt_model.model.decoder") and freeze_decoder:
-                if not freeze_decoder_cross_attn:
-                    if "encoder_attn" not in name:
-                        param.requires_grad = False
-                        is_freeze = True
-                else:
-                    param.requires_grad = False
-                    is_freeze = True
+        #     if name.startswith("mt_model.model.encoder"):
+        #         param.requires_grad = False
+        #         is_freeze = True
+        #         # freeze toàn bộ decoder
+        #     elif name.startswith("mt_model.model.decoder") and freeze_decoder:
+        #         if not freeze_decoder_cross_attn:
+        #             if "encoder_attn" not in name:
+        #                 param.requires_grad = False
+        #                 is_freeze = True
+        #         else:
+        #             param.requires_grad = False
+        #             is_freeze = True
 
-            if torch.cuda.current_device() == 0 and is_freeze:
-                print(f"freeze ==> {name}")
-        print_train_module(self)
+        #     if torch.cuda.current_device() == 0 and is_freeze:
+        #         print(f"freeze ==> {name}")
+        # print_train_module(self)
 
     # def freeze_encoder(self):
     #     for name, param in self.named_parameters():

@@ -137,134 +137,130 @@ def main():
 
     
     if model_args.model_method == "SailorED":
-        # stage 1
-        if model_args.run_mode == "init":
-            if training_args.report_to == "wandb":
-                run = wandb.init(
-                    project='Low-Resource-Machine-Translation',
-                    name='SailorED-pretrain'
-                )
-            decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
-            config.decoder = decoder_config
-            adapter_config = copy.deepcopy(config.to_dict())
-            adapter_config["num_hidden_layers"] = model_args.decoder_layer_num
-            adapter_config["num_encoder_layers"] = config.num_hidden_layers
-            adapter_config["decoder_param_method"] = model_args.decoder_param_method
-            adapter_config["model_method"] = model_args.model_method
-            adapter_config["hidden_size"] = model_args.decoder_hidden_size
-            adapter_config["intermediate_size"] = model_args.decoder_intermediate_size
-            adapter_config["num_attention_heads"] = model_args.decoder_num_attention_heads
-            adapter_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
-            adapter_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
-            adapter_config = Qwen2Config(**adapter_config)
-            config.adapter = adapter_config
-            # set encoder config
-            config.use_cache = False
-            config.is_encoder_decoder = True
-            config.decoder_start_token_id = config.bos_token_id
-            config.encoder_method = model_args.encoder_method
-            config.encoder_layer_num = model_args.encoder_layer_num
-            # make param dict
-            print(type(config))
-            print("Model Init config:", config)
-            state_dict = utils.make_model_state_dict(model_path=model_args.model_name_or_path, seq2seq_model_name_or_path=model_args.decoder_model_name_or_path)
-            model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict, ignore_mismatched_sizes=True)
 
-            model.freeze_model(freeze_llm=model_args.freeze_llm, 
-                               freeze_decoder=model_args.freeze_decoder, 
-                               freeze_decoder_cross_attn=model_args.freeze_decoder_cross_attn,
-                               freeze_mt_lm_head=model_args.freeze_mt_lm_head
-                               )
+        if training_args.report_to == "wandb":
+            wandb.init(
+                project="Low-Resource-Machine-Translation",
+                name=(
+                    "SailorED-pretrain"
+                    if model_args.run_mode == "init"
+                    else "SailorED-sft"
+                )
+            )
+
+        # =========================================================
+        # CONFIG
+        # =========================================================
+
+        decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
+        config.decoder = decoder_config
+
+        adapter_config = copy.deepcopy(config.to_dict())
+
+        adapter_config["num_hidden_layers"] = model_args.decoder_layer_num
+        adapter_config["num_encoder_layers"] = config.num_hidden_layers
+        adapter_config["decoder_param_method"] = model_args.decoder_param_method
+        adapter_config["model_method"] = model_args.model_method
+        adapter_config["hidden_size"] = model_args.decoder_hidden_size
+        adapter_config["intermediate_size"] = model_args.decoder_intermediate_size
+        adapter_config["num_attention_heads"] = model_args.decoder_num_attention_heads
+        adapter_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
+        adapter_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
+
+        adapter_config = Qwen2Config(**adapter_config)
+
+        config.adapter = adapter_config
+
+        config.use_cache = False
+        config.is_encoder_decoder = True
+        config.decoder_start_token_id = config.bos_token_id
+
+        config.encoder_method = model_args.encoder_method
+        config.encoder_layer_num = model_args.encoder_layer_num
+
+        if model_args.run_mode != "init":
+            config.contrastive_lambda = model_args.contrastive_lambda
+            config.contrastive_temperature = model_args.contrastive_temperature
+
+        # =========================================================
+        # LOAD MODEL
+        # =========================================================
+
+        if model_args.run_mode == "init":
+
+            state_dict = utils.make_model_state_dict(
+                model_path=model_args.model_name_or_path,
+                seq2seq_model_name_or_path=model_args.decoder_model_name_or_path
+            )
+
+            model = QwenCrossAttentionEncDecNLLB.from_pretrained(
+                None,
+                config=config,
+                state_dict=state_dict,
+                ignore_mismatched_sizes=True
+            )
+
+        else:
+
+            state_dict = utils.load_checkpoint(
+                model_args.model_name_or_path
+            )
+
+            model = QwenCrossAttentionEncDecNLLB.from_pretrained(
+                None,
+                config=config,
+                state_dict=state_dict
+            )
+
+        # =========================================================
+        # FREEZE
+        # =========================================================
+
+        model.freeze_model(
+            freeze_llm=model_args.freeze_llm,
+            freeze_decoder=model_args.freeze_decoder,
+            freeze_decoder_cross_attn=model_args.freeze_decoder_cross_attn,
+            freeze_mt_lm_head=model_args.freeze_mt_lm_head
+        )
+
+        # =========================================================
+        # LORA
+        # =========================================================
+
+        target_modules = []
+
+        if model_args.train_lora_llm:
+            target_modules.append(
+                r"encoder\.layers\..*"
+                r"(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$"
+            )
+
+        if model_args.train_lora_mt:
+            target_modules.append(
+                r"mt_model\.model\.decoder\.layers\.\d+\.self_attn\."
+                r"(q_proj|k_proj|v_proj|out_proj)$"
+            )
+
+        if len(target_modules) > 0:
+
             lora_config = LoraConfig(
                 r=model_args.lora_r,
                 lora_alpha=model_args.lora_alpha,
                 lora_dropout=0.05,
-                target_modules=r"^encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
-                modules_to_save=["connector", "fuse_model"],
-                task_type=TaskType.SEQ_2_SEQ_LM  
+                bias="none",
+                target_modules="|".join(target_modules),
+                modules_to_save=["connector", "fuse_model", "base_model.model.encoder.embed_tokens"],
+                task_type=TaskType.SEQ_2_SEQ_LM,
             )
+
             model = get_peft_model(model, lora_config)
-            print_train_module(model)
-        # stage 2
-        else:
-            decoder_config.model_name_or_path = model_args.decoder_model_name_or_path
-            config.decoder = decoder_config
-            adapter_config = copy.deepcopy(config.to_dict())
-            adapter_config["num_hidden_layers"] = model_args.decoder_layer_num
-            adapter_config["num_encoder_layers"] = config.num_hidden_layers
-            adapter_config["decoder_param_method"] = model_args.decoder_param_method
-            adapter_config["model_method"] = model_args.model_method
-            adapter_config["hidden_size"] = model_args.decoder_hidden_size
-            adapter_config["intermediate_size"] = model_args.decoder_intermediate_size
-            adapter_config["num_attention_heads"] = model_args.decoder_num_attention_heads
-            adapter_config["num_key_value_heads"] = model_args.decoder_num_key_value_heads
-            adapter_config["layer_types"] = ["full_attention"] * model_args.decoder_layer_num
-            adapter_config = Qwen2Config(**adapter_config)
-            config.adapter = adapter_config
-            # set encoder config
-            config.use_cache = False
-            config.is_encoder_decoder = True
-            config.decoder_start_token_id = config.bos_token_id
-            config.encoder_method = model_args.encoder_method
-            config.encoder_layer_num = model_args.encoder_layer_num
-            config.contrastive_lambda = model_args.contrastive_lambda
-            config.contrastive_temperature = model_args.contrastive_temperature
-            if training_args.report_to == "wandb":
-                run = wandb.init(
-                    project='Low-Resource-Machine-Translation',
-                    name='SailorED-sft'
-                )
-            state_dict = utils.load_checkpoint(model_args.model_name_or_path)
-            model = QwenCrossAttentionEncDecNLLB.from_pretrained(None, config=config, state_dict=state_dict)
-            # model = QwenCrossAttentionEncDecNLLB.from_pretrained(model_args.model_name_or_path)
-            model.freeze_model(freeze_llm=model_args.freeze_llm, 
-                               freeze_decoder=model_args.freeze_decoder, 
-                               freeze_decoder_cross_attn=model_args.freeze_decoder_cross_attn,
-                               freeze_mt_lm_head=model_args.freeze_mt_lm_head
-                            )
-            if model_args.train_lora_llm and model_args.train_lora_mt:
-                lora_config = LoraConfig(
-                    r=model_args.lora_r,
-                    lora_alpha=model_args.lora_alpha,
-                    target_modules = (
-                        r"encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$|"
-                        r"mt_model\.model\.decoder\.layers\.\d+\.self_attn\.(q_proj|k_proj|v_proj|out_proj)$"
-                    ),
-                    modules_to_save=["connector","fuse_model"],
-                    bias="none",
-                    task_type="SEQ_2_SEQ_LM",  
-                    lora_dropout=0.05
-                )
-                model = get_peft_model(model, lora_config)
-            elif model_args.train_lora_llm:
 
-                lora_config = LoraConfig(
-                    r=model_args.lora_r,
-                    lora_alpha=model_args.lora_alpha,
-                    lora_dropout=0.05,
-                    target_modules=r"^encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$",
-                    modules_to_save=["connector", "fuse_model"],
-                    task_type=TaskType.SEQ_2_SEQ_LM  
-                )
-                model = get_peft_model(model, lora_config)
-            elif model_args.train_lora_mt:
+        # =========================================================
+        # PRINT TRAINABLE PARAMS
+        # =========================================================
 
-                lora_config = LoraConfig(
-                    r=model_args.lora_r,
-                    lora_alpha=model_args.lora_alpha,
-                    target_modules = (
-                        r"mt_model\.model\.decoder\.layers\.\d+\.self_attn\.(q_proj|k_proj|v_proj|out_proj)$"
-                    ),
-                    modules_to_save=["connector","fuse_model"],
-                    bias="none",
-                    task_type="SEQ_2_SEQ_LM",  
-                    lora_dropout=0.05
-                )
-                model = get_peft_model(model, lora_config)
+        print_train_module(model)
 
-            # model.freeze_mt(freeze_decoder=False, freeze_cross_attn=True)
-            # model = get_peft_model(model, lora_config)
-            print_train_module(model)
     else:
         print("Not implement this model yet!")
         exit()
@@ -279,7 +275,7 @@ def main():
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
     
     ## Preprocessing data
-    ## Tokenize dataset
+    # Tokenize dataset
     if data_args.mmt_data_path is not None:
         train_raw_data, valid_raw_data, test_raw_data = load_mmt_dataset(pairs, trans_task, data_args, model_args, training_args, logger)
         # print(train_raw_data.keys())
@@ -318,27 +314,13 @@ def main():
 
     ## Data collator
     label_pad_token_id = -100 if data_args.ignore_pad_token_for_loss else llm_tokenizer.pad_token_id
-    if data_args.pad_to_max_length:
-        data_collator = default_data_collator
-    else:
-        if model_args.model_method == "default":
-            data_collator = DataCollatorForSeq2Seq(
-                llm_tokenizer,
-                model=model,
-                label_pad_token_id=label_pad_token_id,
-                pad_to_multiple_of=8 if training_args.fp16 else None,
-            )
-        elif model_args.model_method in ["lamate", "SailorED"]:
-            data_collator = collator.DataCollatorForQwenNLLB(
-                llm_tokenizer,
-                seq2seq_tokenizer,
-                model=model,
-                label_pad_token_id=label_pad_token_id,
-                pad_to_multiple_of=8 if training_args.fp16 else None
-            )
-        else:
-            print("Not implement this model yet!")
-            exit()
+    data_collator = collator.DataCollatorForQwenNLLB(
+        llm_tokenizer,
+        seq2seq_tokenizer,
+        model=model,
+        label_pad_token_id=label_pad_token_id,
+        pad_to_multiple_of=8 if training_args.fp16 else None
+    )
 
     optimizer = None
 
