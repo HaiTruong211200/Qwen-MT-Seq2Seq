@@ -412,3 +412,115 @@ class QwenModelForSeq2Seq(QwenPreTrainedModel):
             for name, param in self.llm.named_parameters():
                 param.requires_grad = False
 
+    def prepare_inputs_for_generation(
+        self, 
+        input_ids, # decoder's
+        past_key_values=None, 
+        attention_mask=None,  # encoder's 
+        inputs_embeds=None, 
+        cache_position=None, 
+        decoder_attention_mask=None,
+        encoder_outputs=None,
+        position_ids=None,
+        **kwargs
+    ):     
+        past_length = 0
+        if past_key_values is not None:
+            if isinstance(past_key_values[0], Cache):
+                # past_length = cache_position[0] if cache_position is not None else past_key_values.get_seq_length()
+                past_length = past_key_values[0].get_seq_length()
+            else:
+                past_length = past_key_values[0][0][0].shape[2]
+            
+            if input_ids.shape[1] > past_length:
+                remove_prefix_length = past_length
+            else:
+                # Default to old behavior: keep only final ID
+                remove_prefix_length = input_ids.shape[1] - 1
+
+            input_ids = input_ids[:, remove_prefix_length:]
+        
+        if decoder_attention_mask is not None and position_ids is None:
+            # create position_ids on the fly for batch generation
+            ## reset position
+            position_ids = decoder_attention_mask.long().cumsum(-1) - 1
+            position_ids.masked_fill_(decoder_attention_mask == 0, 1)
+            if past_key_values:
+                position_ids = position_ids[:, -input_ids.shape[1] :]
+
+        # if `inputs_embeds` are passed, we only want to use them in the 1st generation step
+        if inputs_embeds is not None and past_key_values is None:
+            model_inputs = {"inputs_embeds": inputs_embeds}
+        else:
+            # The `contiguous()` here is necessary to have a static stride during decoding. torchdynamo otherwise
+            # recompiles graphs as the stride of the inputs is a guard. Ref: https://github.com/huggingface/transformers/pull/29114
+            # TODO: use `next_tokens` directly instead.
+            model_inputs = {"input_ids": input_ids.contiguous()}
+
+        # first inference step: src + tgt length
+        # subsequent inference step: new generated tokens length, default is 1
+        # print(f"position_ids shape: {position_ids}, input_ids shape: {input_ids.shape}")
+        input_length = position_ids.shape[-1]
+            
+        ## overwrite the default updata
+        cache_position = torch.arange(past_length, past_length + input_length, device=input_ids.device)
+
+        model_inputs.update(
+            {   
+                "decoder_input_ids": input_ids,
+                "position_ids": position_ids,
+                "cache_position": cache_position,
+                "past_key_values": past_key_values,
+                "use_cache": kwargs.get("use_cache"),
+                "attention_mask": attention_mask,
+                "decoder_attention_mask": decoder_attention_mask,
+                "encoder_outputs": encoder_outputs
+            }
+        )
+        return model_inputs
+    
+    def _prepare_encoder_decoder_kwargs_for_generation(
+        self, 
+        inputs_tensor: torch.Tensor, 
+        model_kwargs, 
+        model_input_name: Optional[str] = None,
+        *args,
+        **kwargs
+    ) -> Dict[str, Any]:
+        ### default will not reture encoder's all hidden states, so we overwrite it.
+
+        # 1. get encoder
+        encoder = self.get_encoder()
+        # Compatibility with Accelerate big model inference: we need the encoder to outputs stuff on the same device
+        # as the inputs.
+        if hasattr(self, "hf_device_map"):
+            if hasattr(encoder, "_hf_hook"):
+                encoder._hf_hook.io_same_device = True
+            else:
+                add_hook_to_module(encoder, AlignDevicesHook(io_same_device=True))
+
+        # 2. Prepare encoder args and encoder kwargs from model kwargs.
+        irrelevant_prefix = ["decoder_", "cross_attn", "use_cache"]
+        encoder_kwargs = {
+            argument: value
+            for argument, value in model_kwargs.items()
+            if not any(argument.startswith(p) for p in irrelevant_prefix)
+        }
+        encoder_signature = set(inspect.signature(encoder.forward).parameters)
+        encoder_accepts_wildcard = "kwargs" in encoder_signature or "model_kwargs" in encoder_signature
+        if not encoder_accepts_wildcard:
+            encoder_kwargs = {
+                argument: value for argument, value in encoder_kwargs.items() if argument in encoder_signature
+            }
+
+        # 3. make sure that encoder returns `ModelOutput`
+        model_input_name = model_input_name if model_input_name is not None else self.main_input_name
+        encoder_kwargs["return_dict"] = True
+        encoder_kwargs[model_input_name] = inputs_tensor
+        ## new
+        encoder_kwargs["use_cache"] = False
+        encoder_kwargs["output_hidden_states"] = True
+        model_kwargs["encoder_outputs"]: ModelOutput = encoder(**encoder_kwargs)
+
+        return model_kwargs
+

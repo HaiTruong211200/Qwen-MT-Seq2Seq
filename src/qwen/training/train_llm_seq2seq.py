@@ -166,7 +166,7 @@ def main():
     # 7. LORA CONFIGURATION
     target_modules = []
     if model_args.train_lora_llm:
-        target_modules.append(r"encoder\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$")
+        target_modules.append(r"llm\.model\.layers\..*(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$")
     if model_args.train_lora_mt:
         target_modules.append(r"mt_model\.model\.decoder\.layers\.\d+\.self_attn\.(q_proj|k_proj|v_proj|out_proj)$")
 
