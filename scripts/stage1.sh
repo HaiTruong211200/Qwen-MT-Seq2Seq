@@ -27,10 +27,11 @@ decoder_intermediate_size=1376
 decoder_num_attention_heads=8
 decoder_num_key_value_heads=8
 decoder_param_method="freeze"
-tag=lamate_s1
+tag=SailorED_s1
 
 ## data
-language_pairs=vi-km,vi-lo
+language_pairs=km-vi,lo-vi
+languages=vi,lo,km
 mmt_data_path=$ROOT_DIR/data
 trans_task="general_trans"
 epoch=2
@@ -61,6 +62,7 @@ accelerate launch --config_file $config_file \
     --trans_task $trans_task \
     --test_dataname wmt23 \
     --language_pairs $language_pairs \
+    --languages $languages \
     --use_fast_tokenizer \
     --do_eval \
     --do_train \

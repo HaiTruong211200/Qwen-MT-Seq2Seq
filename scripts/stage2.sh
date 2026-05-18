@@ -29,10 +29,11 @@ decoder_num_key_value_heads=8
 lora_r=32
 lora_alpha=64
 # decoder_param_method="freeze"
-tag=lamate_s2
+tag=SailorED_s2
 
 ## data
-language_pairs=vi-km,vi-lo
+language_pairs=km-vi,lo-vi
+languages=vi,lo,km
 mmt_data_path=$ROOT_DIR/data
 trans_task="general_trans"
 epoch=2

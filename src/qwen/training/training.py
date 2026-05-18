@@ -182,6 +182,7 @@ def main():
             config.ot_reg = model_args.ot_reg
             config.ot_num_iters = model_args.ot_num_iters
             config.ot_eps = model_args.ot_eps
+            config.num_layers_align = model_args.num_layers_align
             print("Model Stage 2 config:", config)
             if training_args.report_to == "wandb":
                 run = wandb.init(
@@ -189,6 +190,8 @@ def main():
                     name='SailorED-sft'
                 )
             model = QwenCrossAttentionEncDec.from_pretrained(model_args.model_name_or_path, config=config)
+            # model.freeze_llm() # frozen LLM
+            model.freeze_decoder(freeze_cross_attn=False) # only train cross attention in decoder
             lora_config = LoraConfig(
                 r=model_args.lora_r,
                 lora_alpha=model_args.lora_alpha,
@@ -202,7 +205,7 @@ def main():
                 task_type=TaskType.SEQ_2_SEQ_LM  # Hoặc task phù hợp với model Enc-Dec của bạn
             )
 
-# Kiểm tra nhanh sau khi get_peft_model
+# # Kiểm tra nhanh sau khi get_peft_model
             model = get_peft_model(model, lora_config)
     else:
         print(">>> Running other model")
