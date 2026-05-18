@@ -21,6 +21,11 @@ from .combine_encoder import QwenModelCombineEncoder
 from .decoder import QwenCrossAttDecoder, NLLBDecoder
 from .modules.connector import Connector, GroupedEncoderFusion
 
+def print_train_module(model):
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            if torch.cuda.current_device() == 0:
+                print(f"train  ==> {name}")
 class QwenForSeq2SeqConfig(Qwen2Config):
     def __init__(
         self, 
@@ -359,4 +364,27 @@ class QwenModelForSeq2Seq(QwenPreTrainedModel):
         ot_loss = (P * cost * valid).sum(dim=(1, 2)).mean()
 
         return ot_loss
+    
+    def freeze_model(self, freeze_llm=True, freeze_decoder=True, freeze_decoder_cross_attn=True, freeze_mt_lm_head=True):
+        # freeze mt encoder
+        for name, param in self.mt_model.get_encoder().named_parameters():
+            param.requires_grad = False
+        
+        # freeze mt decoder
+        if freeze_decoder:
+            for name, param in self.mt_model.get_decoder().named_parameters():
+                param.requires_grad = False
+                if 'encoder_attn' in name and not freeze_decoder_cross_attn:      # train decoder cross-attention
+                    param.requires_grad = True
+                    print(f"Unfroze: {name}")
+
+        # freeze mt lm head
+        if freeze_mt_lm_head:
+            for name, param in self.mt_model.lm_head.named_parameters():
+                param.requires_grad = False
+
+        # freeze llm
+        if freeze_llm:
+            for name, param in self.llm.named_parameters():
+                param.requires_grad = False
 
