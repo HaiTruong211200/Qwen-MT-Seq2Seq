@@ -236,7 +236,7 @@ def main():
         eval_dataset=eval_datasets if training_args.do_eval else None,
         tokenizer=llm_tokenizer,
         data_collator=data_collator,
-        callbacks=[EarlyStoppingCallback(early_stopping_patience=model_args.patience)],
+        # callbacks=[EarlyStoppingCallback(early_stopping_patience=model_args.patience)],
     )
 
     logger.info(model)
