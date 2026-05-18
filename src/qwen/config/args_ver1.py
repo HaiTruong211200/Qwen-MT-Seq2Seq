@@ -78,6 +78,8 @@ class ModelArguments:
     do_sample: bool = field(default=False)
     patience: int = field(default=3)
 
+    model_method: str = field(default="SailorED", metadata={"help": "The method to build the model architecture"})
+
     num_connector_layers: int = field(default=4),
     connector_hidden_size: int = field(default=1024),
     connector_intermediate_size: int = field(default=4096),

@@ -45,7 +45,7 @@ from transformers.trainer_utils import get_last_checkpoint
 
 # from qwen.models.enc_dec import QwenCrossAttentionEncDec, QwenCrossAttentionEncDecNLLB, print_train_module
 from qwen.models.llm_seq2seq import QwenForSeq2SeqConfig, QwenModelForSeq2Seq, print_train_module
-from qwen.config.args import DataTrainingArguments, ModelArguments
+from qwen.config.args_ver1 import DataTrainingArguments, ModelArguments
 
 from qwen.utils.check_weight import check_weight
 from qwen.utils.initialize_model_weight import manual_fix_connector_weights
@@ -133,7 +133,13 @@ def main():
         connector_num_attention_heads=model_args.connector_num_attention_heads,
         connector_num_key_value_heads=model_args.connector_num_key_value_heads,
         connector_model_method=model_args.connector_model_method,
-        fuse_model_group_size=model_args.fuse_model_group_size
+        fuse_model_group_size=model_args.fuse_model_group_size,
+        contrastive_lambda=model_args.contrastive_lambda,
+        contrastive_temperature=model_args.contrastive_temperature,
+        ot_lambda=model_args.ot_lambda,
+        ot_reg=model_args.ot_reg,
+        ot_num_iters=model_args.ot_num_iters,
+        ot_eps=model_args.ot_eps,
     )
 
     # add_eos_token = True if model_args.model_method == "default" else False
@@ -249,11 +255,9 @@ def main():
             )
 
         if len(target_modules) > 0:
-
-            if model_args.freeze_decoder_cross_attn:
-                modules_to_save = ["connector", "fuse_model", "encoder.embed_tokens"]
-            else:
-                modules_to_save = ["connector", "fuse_model", "encoder.embed_tokens", "encoder_attn"]
+            modules_to_save = ["connector", "fuse_model"]
+            if not model_args.freeze_decoder:
+                    modules_to_save.append("mt_model.model.decoder")
 
             lora_config = LoraConfig(
                 r=model_args.lora_r,
@@ -267,9 +271,9 @@ def main():
 
             model = get_peft_model(model, lora_config)
 
-            for name, param in model.mt_model.get_encoder().named_parameters():
-                if "embed_tokens" in name:
-                    param.requires_grad = False
+            # for name, param in model.mt_model.get_encoder().named_parameters():
+            #     if "embed_tokens" in name:
+            #         param.requires_grad = False
 
         # =========================================================
         # PRINT TRAINABLE PARAMS
@@ -283,12 +287,12 @@ def main():
     
     # model.tie_weights()
 
-    model = utils.set_model_special_tokens(model, model_args.model_name_or_path)
+    model.llm = utils.set_model_special_tokens(model.llm, model_args.model_name_or_path)
     print(model.generation_config)
 
 
-    if model.config.decoder_start_token_id is None:
-        raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
+    # if model.config.decoder_start_token_id is None:
+    #     raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
     
     ## Preprocessing data
     # Tokenize dataset

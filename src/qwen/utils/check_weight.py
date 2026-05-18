@@ -89,7 +89,7 @@
 #       f"| Min: {lm_head.weight.min().item():.4f} "
 #       f"| Mean: {lm_head.weight.mean().item():.4f} "
 #       f"| Std: {lm_head.weight.std().item():.4f}")
-
+import torch
 
 def print_weight_stats(name, tensor, warn_std=0.1):
     if tensor is None:

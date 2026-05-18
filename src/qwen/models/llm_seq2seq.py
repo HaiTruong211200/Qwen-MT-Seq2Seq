@@ -38,6 +38,12 @@ class QwenForSeq2SeqConfig(Qwen2Config):
         connector_num_key_value_heads = None,
         connector_model_method = None,
         fuse_model_group_size = None,
+        contrastive_lambda = 0.0,
+        contrastive_temperature = 0.07,
+        ot_lambda = 0.0,
+        ot_reg = 0.1,
+        ot_num_iters = 20,
+        ot_eps = 1e-8,
         **kwargs):
         super().__init__(**kwargs)
         self.mt_model_path = mt_model_path
@@ -49,6 +55,12 @@ class QwenForSeq2SeqConfig(Qwen2Config):
         self.connector_num_key_value_heads = connector_num_key_value_heads
         self.connector_model_method = connector_model_method
         self.fuse_model_group_size = fuse_model_group_size
+        self.contrastive_lambda = contrastive_lambda
+        self.contrastive_temperature = contrastive_temperature
+        self.ot_lambda = ot_lambda
+        self.ot_reg = ot_reg
+        self.ot_num_iters = ot_num_iters
+        self.ot_eps = ot_eps
 
 class QwenModelForSeq2Seq(QwenPreTrainedModel):
     def __init__(self, config: QwenForSeq2SeqConfig):
@@ -75,6 +87,14 @@ class QwenModelForSeq2Seq(QwenPreTrainedModel):
         self.connector = Connector(self.adapter_config)
         self.fuse_model = GroupedEncoderFusion(self.llm_config, config.fuse_model_group_size)
         self.mt_model = AutoModelForSeq2SeqLM.from_pretrained(config.mt_model_path)
+
+        self.contrastive_lambda = config.contrastive_lambda
+        self.contrastive_temperature = config.contrastive_temperature
+        self.ot_lambda = config.ot_lambda
+        self.ot_reg = config.ot_reg
+        self.ot_num_iters = config.ot_num_iters
+        self.ot_eps = config.ot_eps
+
 
     def forward(
         self,
@@ -162,7 +182,7 @@ class QwenModelForSeq2Seq(QwenPreTrainedModel):
                     loss = lm_loss + self.contrastive_lambda * contrastive_loss
                 if self.ot_lambda > 0:
                     ot_loss = self.compute_ot_loss_cosine(
-                        encoder_hidden_states=last_hidden_states,
+                        hidden_states_a=last_hidden_states,
                         mask_a=attention_mask,
                         hidden_states_b=hidden_states,
                         mask_b=decoder_attention_mask,
