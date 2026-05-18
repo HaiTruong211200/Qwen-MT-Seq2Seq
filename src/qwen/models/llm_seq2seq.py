@@ -32,6 +32,7 @@ class QwenForSeq2SeqConfig(Qwen2Config):
         connector_num_attention_heads = None,
         connector_num_key_value_heads = None,
         connector_model_method = None,
+        fuse_model_group_size = None,
         **kwargs):
         super().__init__(**kwargs)
         self.mt_model_path = mt_model_path
@@ -42,6 +43,7 @@ class QwenForSeq2SeqConfig(Qwen2Config):
         self.connector_num_attention_heads = connector_num_attention_heads
         self.connector_num_key_value_heads = connector_num_key_value_heads
         self.connector_model_method = connector_model_method
+        self.fuse_model_group_size = fuse_model_group_size
 
 class QwenModelForSeq2Seq(QwenPreTrainedModel):
     def __init__(self, config: QwenForSeq2SeqConfig):
@@ -66,7 +68,7 @@ class QwenModelForSeq2Seq(QwenPreTrainedModel):
         self.adapter_config = adapter_config
         
         self.connector = Connector(self.adapter_config)
-        self.fuse_model = GroupedEncoderFusion(config.llm_config)
+        self.fuse_model = GroupedEncoderFusion(self.llm_config, config.fuse_model_group_size)
         self.mt_model = AutoModelForSeq2SeqLM.from_pretrained(config.mt_model_path)
 
     def forward(

@@ -10,54 +10,81 @@ from transformers.modeling_outputs import BaseModelOutputWithPast
 from .normalization import QwenRMSNorm
 from qwen.models.encoder import QwenModelBiAttEncoder
 
+# class ProjectDown(nn.Module):
+#     def __init__(self, encoder_dim, decoder_dim):
+#         super().__init__()
+#         self.linear_1 = nn.Linear(encoder_dim, decoder_dim, bias=False)
+#         self.act_fn = nn.GELU()
+#         self.linear_2 = nn.Linear(decoder_dim, decoder_dim, bias=False)
+
+#         # --- KHỞI TẠO TRỌNG SỐ ---
+#         self.apply(self._init_weights)
+
+
+#     def _init_weights(self, module):
+#             """Khởi tạo Kaiming Normal (tốt cho GELU/ReLU)"""
+#             if isinstance(module, nn.Linear):
+#                 # fan_in: Bảo toàn độ lớn phương sai trong quá trình Forward pass
+#                 # nonlinearity='relu': Phù hợp với GELU (vì GELU ~ ReLU ở miền dương)
+#                 nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
+                
+#                 if module.bias is not None:
+#                     nn.init.constant_(module.bias, 0)
+            
+#             # Mẹo: Lớp output cuối cùng (linear_2) nên được khởi tạo nhỏ hơn một chút
+#             # để mạng bắt đầu học từ những bước nhỏ, tránh shock loss đầu tiên.
+#             if module == self.linear_2:
+#                 # Scale lại weight nhỏ đi (ví dụ nhân 0.02)
+#                 module.weight.data.normal_(mean=0.0, std=0.02)
+
+#     def forward(self, x):
+#         x = self.linear_1(x)
+#         x = self.act_fn(x)
+#         x = self.linear_2(x)
+        
+#         return x
 class ProjectDown(nn.Module):
     def __init__(self, encoder_dim, decoder_dim):
         super().__init__()
         self.linear_1 = nn.Linear(encoder_dim, decoder_dim, bias=False)
-        self.act_fn = nn.GELU()
+        self.act_fn = nn.SiLU()
         self.linear_2 = nn.Linear(decoder_dim, decoder_dim, bias=False)
 
-        # --- KHỞI TẠO TRỌNG SỐ ---
-        self.apply(self._init_weights)
+        self._init_weights()
 
-
-    def _init_weights(self, module):
-            """Khởi tạo Kaiming Normal (tốt cho GELU/ReLU)"""
-            if isinstance(module, nn.Linear):
-                # fan_in: Bảo toàn độ lớn phương sai trong quá trình Forward pass
-                # nonlinearity='relu': Phù hợp với GELU (vì GELU ~ ReLU ở miền dương)
-                nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
-                
-                if module.bias is not None:
-                    nn.init.constant_(module.bias, 0)
-            
-            # Mẹo: Lớp output cuối cùng (linear_2) nên được khởi tạo nhỏ hơn một chút
-            # để mạng bắt đầu học từ những bước nhỏ, tránh shock loss đầu tiên.
-            if module == self.linear_2:
-                # Scale lại weight nhỏ đi (ví dụ nhân 0.02)
-                module.weight.data.normal_(mean=0.0, std=0.02)
+    def _init_weights(self):
+        # Khởi tạo trực tiếp cho từng layer, rõ ràng và không bị lặp
+        nn.init.normal_(self.linear_1.weight, mean=0.0, std=0.02)
+        
+        # Output layer nhỏ hơn (std = 0.01) giúp ổn định training giai đoạn đầu
+        nn.init.normal_(self.linear_2.weight, mean=0.0, std=0.02 * 0.5)
+        
+        # Vì bạn để bias=False nên không cần init bias, 
+        # nhưng nếu sau này bật bias=True thì đoạn dưới này sẽ tự động xử lý:
+        for layer in [self.linear_1, self.linear_2]:
+            if layer.bias is not None:
+                nn.init.zeros_(layer.bias)
 
     def forward(self, x):
         x = self.linear_1(x)
         x = self.act_fn(x)
         x = self.linear_2(x)
-        
         return x
     
 ## MLP + TinyEncoder
 class Connector(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.encoder_project = ProjectDown(encoder_dim=config.hidden_size, decoder_dim=config.adapter.hidden_size)
+        self.encoder_project = ProjectDown(encoder_dim=config.llm_hidden_size, decoder_dim=config.hidden_size)
         # self.encoder_project = ProjectDown(encoder_dim=4096, decoder_dim=2048)
         self.post_encoder = None
         self.encoder_method = getattr(config, "encoder_method", "causal")
 
         if self.encoder_method == "stack":
-            tiny_encoder_config = copy.deepcopy(config.adapter)
+            tiny_encoder_config = copy.deepcopy(config)
             # tiny_encoder_config["num_hidden_layers"] = getattr(config, "encoder_layer_num", 8)
-            tiny_encoder_config.num_hidden_layers = getattr(config, "encoder_layer_num", 8)
-            tiny_encoder_config.layer_types = ["full_attention"] * tiny_encoder_config.num_hidden_layers
+            # tiny_encoder_config.num_hidden_layers = getattr(config, "encoder_layer_num", 8)
+            # tiny_encoder_config.layer_types = ["full_attention"] * tiny_encoder_config.num_hidden_layers
             # stack_encoder_config = PretrainedConfig.from_dict(tiny_encoder_config)  
             # stack_encoder_config = PretrainedConfig.from_dict(tiny_encoder_config.to_dict())  
             self.post_encoder = QwenModelBiAttEncoder(tiny_encoder_config)
