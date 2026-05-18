@@ -15,11 +15,11 @@ class ModelArguments:
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
 
-    llm_name_or_path: str = field(
+    llm_path: str = field(
         metadata={"help": "Path to pretrained model or model identifier from huggingface.co/models"}
     )
 
-    decoder_model_name_or_path: str = field(
+    mt_model_path: str = field(
         default=None, metadata={"help": "Path to pretrained decoder model or model identifier from huggingface.co/models"}
     )
     config_name: Optional[str] = field(
@@ -74,19 +74,19 @@ class ModelArguments:
             "help": "The default refers to the general seq2seq model, such as t5,bart"
         },
     )
-    decoder_layer_num: int = field(default=8)
     run_mode: str = field(default="resume")
     do_sample: bool = field(default=False)
     patience: int = field(default=3)
-    encoder_method: str = field(default="causal")
 
-    decoder_param_method: str = field(default="freeze")
-    decoder_hidden_size: int = field(default=1024)
-    decoder_intermediate_size: int = field(default=2752)
-    decoder_num_attention_heads: int = field(default=16)
-    decoder_num_key_value_heads: int = field(default=16)
-    decoder_model_name_or_path: str = field(default=None)
-    encoder_layer_num: int = field(default=8)
+    model_method: str = field(default="SailorED", metadata={"help": "The method to build the model architecture"})
+
+    num_connector_layers: int = field(default=4),
+    connector_hidden_size: int = field(default=1024),
+    connector_intermediate_size: int = field(default=4096),
+    connector_num_attention_heads: int = field(default=16),
+    connector_num_key_value_heads: int = field(default=8),
+    connector_model_method: str = field(default="stack"),
+    fuse_model_group_size: int = field(default=4),
 
     lora_r: int = field(default=32)
     lora_alpha: int = field(default=64)

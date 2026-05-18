@@ -63,14 +63,18 @@ class QwenForSeq2SeqConfig(Qwen2Config):
         self.ot_eps = ot_eps
 
 class QwenModelForSeq2Seq(QwenPreTrainedModel):
-    def __init__(self, config: QwenForSeq2SeqConfig):
+    def __init__(self, config: QwenForSeq2SeqConfig, is_init=False):
         super().__init__(config)
 
         self.llm_config = AutoConfig.from_pretrained(config.llm_path)
         self.mt_config = AutoConfig.from_pretrained(config.mt_model_path)
 
-        self.llm = AutoModelForCausalLM.from_pretrained(config.llm_path)
-
+        if is_init:
+            self.llm = AutoModelForCausalLM.from_pretrained(config.llm_path)
+            self.mt_model = AutoModelForSeq2SeqLM.from_pretrained(config.mt_model_path)
+        else:
+            self.llm = AutoModelForCausalLM.from_config(config=self.llm_config)
+            self.mt_model = AutoModelForSeq2SeqLM.from_config(config=self.mt_config)
         adapter_config = copy.deepcopy(config.to_dict())
         adapter_config["num_hidden_layers"] = config.num_connector_layers
         adapter_config["hidden_size"] = config.connector_hidden_size
@@ -86,7 +90,7 @@ class QwenModelForSeq2Seq(QwenPreTrainedModel):
         
         self.connector = Connector(self.adapter_config)
         self.fuse_model = GroupedEncoderFusion(self.llm_config, config.fuse_model_group_size)
-        self.mt_model = AutoModelForSeq2SeqLM.from_pretrained(config.mt_model_path)
+        
 
         self.contrastive_lambda = config.contrastive_lambda
         self.contrastive_temperature = config.contrastive_temperature
