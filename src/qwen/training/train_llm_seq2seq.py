@@ -172,8 +172,8 @@ def main():
 
     if target_modules:
         modules_to_save = ["connector", "fuse_model"]
-        if not model_args.freeze_decoder:
-            modules_to_save.append("mt_model.model.decoder")
+        # if not model_args.freeze_decoder:
+        #     modules_to_save.append("mt_model.model.decoder")
 
         lora_config = LoraConfig(
             r=model_args.lora_r,
@@ -185,6 +185,9 @@ def main():
             task_type=TaskType.SEQ_2_SEQ_LM,
         )
         model = get_peft_model(model, lora_config)
+        if not model_args.freeze_decoder:
+            for name, param in model.mt_model.get_decoder().named_parameters():
+                param.requires_grad = True
 
     # 8. FINALIZE
     print_train_module(model)
